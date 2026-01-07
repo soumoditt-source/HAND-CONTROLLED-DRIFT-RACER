@@ -1,0 +1,7 @@
+{
+  "name": "Gesture Racer",
+  "description": "A 3D car racing game controlled by your hand gestures through your webcam. Make a fist to accelerate, open your palm to brake, and tilt your hand to steer left and right.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
