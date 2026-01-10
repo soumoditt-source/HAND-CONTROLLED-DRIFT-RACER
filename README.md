@@ -42,7 +42,7 @@ This project is optimized for **Angular CLI** deployment on Vercel.
     *   Push to GitHub.
     *   Import to Vercel.
     *   Build Command: `ng build`
-    *   Output Directory: `dist/gesture-racer/browser`
+    *   **Output Directory:** `dist/gesture-racer-3d/browser`
 
 ---
 
