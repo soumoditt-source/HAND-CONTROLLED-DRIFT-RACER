@@ -43,20 +43,27 @@ self.addEventListener('fetch', (event) => {
         if (cachedResponse) {
           return cachedResponse;
         }
-        return fetch(event.request).then((response) => {
-          // Check if valid response
-          if (!response || response.status !== 200 || response.type !== 'basic' && response.type !== 'cors' && response.type !== 'opaque') {
+        return fetch(event.request)
+          .then((response) => {
+            // Check if valid response
+            if (!response || response.status !== 200 || response.type !== 'basic' && response.type !== 'cors' && response.type !== 'opaque') {
+              return response;
+            }
+
+            // Clone response to put in cache
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+
             return response;
-          }
-
-          // Clone response to put in cache
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
+          })
+          .catch((err) => {
+            console.warn('Fetch failed for ' + event.request.url, err);
+            // Return a fallback response so the app doesn't crash on "Failed to fetch"
+            // We return a 408 to indicate timeout/offline without breaking the promise chain hard
+            return new Response('Offline', { status: 408, statusText: 'Offline/Fetch Failed' });
           });
-
-          return response;
-        });
       })
     );
   }

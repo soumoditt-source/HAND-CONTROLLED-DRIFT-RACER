@@ -2,7 +2,7 @@
 /*
  * PROJECT: Gesture Racer 3D (Megatronix Edition)
  * AUTHOR: Soumoditya Das & Team Megatronix 2026 (MSIT)
- * VERSION: 7.0.0 (Presentation Master)
+ * VERSION: 7.0.1 (Stable Build)
  */
 
 import { Component, ChangeDetectionStrategy, signal, ViewChild, ElementRef, AfterViewInit, OnDestroy } from '@angular/core';
@@ -169,7 +169,12 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       
     } catch (e) {
       console.error(e);
-      this.loadingMessage.set('Error: Camera Permission Denied');
+      // More descriptive error message
+      if (e instanceof Error && e.message.includes('fetch')) {
+         this.loadingMessage.set('Network Error: Check Connection');
+      } else {
+         this.loadingMessage.set('Error: Camera Access Denied');
+      }
     }
   }
 
@@ -656,6 +661,8 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       this.bgmAudio = new Audio(BGM_URL);
       this.bgmAudio.loop = true;
       this.bgmAudio.volume = 0.2; 
+      this.bgmAudio.crossOrigin = 'anonymous';
+      this.bgmAudio.onerror = (e) => console.warn('Audio load error', e);
   }
   
   startAudio() {

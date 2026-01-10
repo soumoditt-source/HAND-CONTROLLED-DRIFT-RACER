@@ -1,27 +1,40 @@
 {
   "name": "gesture-racer-3d",
-  "private": true,
   "version": "0.0.0",
-  "type": "module",
   "scripts": {
-    "dev": "ng serve",
+    "ng": "ng",
+    "start": "ng serve",
     "build": "ng build",
-    "preview": "ng serve --configuration=production"
+    "watch": "ng build --watch --configuration development",
+    "test": "ng test"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=18.19.1"
   },
   "dependencies": {
-    "rxjs": "^7.8.2",
+    "@angular/animations": "^21.0.0",
+    "@angular/common": "^21.0.0",
     "@angular/compiler": "^21.0.0",
     "@angular/core": "^21.0.0",
-    "@angular/common": "^21.0.0",
+    "@angular/forms": "^21.0.0",
     "@angular/platform-browser": "^21.0.0",
-    "@angular/build": "^21.0.0",
-    "@angular/cli": "^21.0.0",
-    "@angular/compiler-cli": "^21.0.0",
-    "tailwindcss": "latest"
+    "@angular/router": "^21.0.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0",
+    "zone.js": "~0.14.0"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "@angular-devkit/build-angular": "^21.0.0",
+    "@angular/cli": "^21.0.0",
+    "@angular/compiler-cli": "^21.0.0",
+    "@types/jasmine": "~5.1.0",
+    "jasmine-core": "~5.1.0",
+    "karma": "~6.4.0",
+    "karma-chrome-launcher": "~3.2.0",
+    "karma-coverage": "~2.2.0",
+    "karma-jasmine": "~5.1.0",
+    "karma-jasmine-html-reporter": "~2.1.0",
+    "typescript": "5.9.2"
   }
 }
