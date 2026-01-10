@@ -1,15 +1,18 @@
 
-/* Utility for slanted buttons */
 .clip-path-slant {
     clip-path: polygon(10% 0, 100% 0, 90% 100%, 0% 100%);
 }
 
-/* Scrollbar hide */
-::-webkit-scrollbar {
-    display: none;
+.custom-scroll::-webkit-scrollbar {
+    width: 6px;
 }
-
-video {
-    /* Ensure video is visible in the HUD */
-    display: block;
+.custom-scroll::-webkit-scrollbar-track {
+    background: #111;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+}
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+    background: #555;
 }

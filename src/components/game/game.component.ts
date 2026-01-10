@@ -1,34 +1,36 @@
 
 /*
- * PROJECT: Gesture Racer 3D
- * AUTHOR: Soumoditya Das (soumoditt@gmail.com)
- * DESCRIPTION: A computer vision-based racing game using Angular, Three.js, and MediaPipe.
- * COPYRIGHT: (c) 2024 Soumoditya Das. All Rights Reserved.
- * 
- * NOTE TO DEVELOPERS:
- * This code is self-contained for the game logic. Ensure camera permissions are granted.
- * To run locally, serve via HTTPS or localhost.
+ * PROJECT: Gesture Racer 3D (Megatronix Edition)
+ * AUTHOR: Soumoditya Das & Team Megatronix 2026 (MSIT)
+ * VERSION: 7.0.0 (Presentation Master)
  */
 
 import { Component, ChangeDetectionStrategy, signal, ViewChild, ElementRef, AfterViewInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
-// Access THREE from global scope (Loaded via CDN in index.html)
+// Access THREE from global scope
 declare const THREE: any;
 
-enum DriveState {
-  IDLE = 'NEUTRAL',
-  ACCELERATING = 'GAS',
-  BRAKING = 'BRAKING'
+// --- CONFIG ---
+const BGM_URL = 'https://opengameart.org/sites/default/files/Rolemusic_-_pl4y1ng.mp3'; 
+const LERP_FACTOR = 0.08; // Optimized for smooth demo
+
+interface CarModel {
+  id: string;
+  name: string;
+  price: number;
+  color: number;
+  speedMult: number;
+  handlingMult: number;
+  unlocked: boolean;
 }
 
-enum SteeringState {
-  STRAIGHT = 'STRAIGHT',
-  LEFT = 'LEFT',
-  RIGHT = 'RIGHT',
-  DRIFT_LEFT = 'DRIFT LEFT',
-  DRIFT_RIGHT = 'DRIFT RIGHT'
-}
+const CAR_CATALOG: CarModel[] = [
+  { id: 'starter_red', name: 'Megatronix MK1', price: 0, color: 0xdc2626, speedMult: 1.0, handlingMult: 1.0, unlocked: true },
+  { id: 'sedan_blue', name: 'MSIT Cruiser', price: 500, color: 0x2563eb, speedMult: 1.1, handlingMult: 0.9, unlocked: false },
+  { id: 'sport_yellow', name: 'Cyber Hornet', price: 1500, color: 0xeab308, speedMult: 1.25, handlingMult: 1.1, unlocked: false },
+  { id: 'super_black', name: 'Shadow V12', price: 5000, color: 0x111111, speedMult: 1.5, handlingMult: 1.3, unlocked: false }
+];
 
 @Component({
   selector: 'app-game',
@@ -41,932 +43,662 @@ enum SteeringState {
 export class GameComponent implements AfterViewInit, OnDestroy {
   @ViewChild('webcamVideo') video!: ElementRef<HTMLVideoElement>;
   @ViewChild('canvasContainer') canvasContainer!: ElementRef<HTMLDivElement>;
+  @ViewChild('landmarkCanvas') landmarkCanvas!: ElementRef<HTMLCanvasElement>;
 
-  // --- Game State Signals ---
-  gameState = signal<'IDLE' | 'LOADING' | 'RUNNING' | 'GAME_OVER'>('IDLE');
-  loadingMessage = signal('System Initialization...');
+  // --- STATE ---
+  gameState = signal<'IDLE' | 'LOADING' | 'RUNNING' | 'SHOP' | 'GAME_OVER'>('IDLE');
+  isPaused = signal(false);
+  loadingMessage = signal('Booting AI Systems...');
   
-  // Scoring
+  // Economy
+  coins = signal(0);
+  availableCars = signal<CarModel[]>(CAR_CATALOG);
+  selectedCarId = signal<string>('starter_red');
+
+  // Gameplay UI Signals
   score = signal(0);
-  highScore = signal(0);
-  lastScore = signal(0);
-  
-  // Physics & Control
-  currentDriveState = signal<DriveState>(DriveState.IDLE);
-  currentSteerState = signal<SteeringState>(SteeringState.STRAIGHT);
   speedKph = signal(0);
-  currentGear = signal(1); // 1 to 6
-  distanceTraveled = 0;
+  currentGear = signal(1); 
   
-  // --- Computer Vision ---
-  handLandmarker: any = undefined;
-  webcamRunning = false;
+  // Physics & Vision Signals
+  currentDriveState = signal<'NEUTRAL' | 'GAS' | 'BRAKING'>('NEUTRAL');
+  virtualSteerAngle = signal(0); 
+  isTwoHandMode = signal(false);
+  aiSuggestion = signal('SYSTEM ONLINE');
+  aiSuggestionType = signal<'INFO' | 'WARN' | 'DANGER'>('INFO');
 
-  // --- 3D Graphics (Three.js) ---
+  // Internal Physics
+  private speed = 0; 
+  private maxSpeedBase = 5.0; 
+  private carX = 0; 
+  
+  // Smoothing
+  private targetSteer = 0; 
+  private currentSteer = 0; 
+  private carHealth = 100;
+  
+  // Three.js
   private scene: any;
   private camera: any;
   private renderer: any;
   private clock: any;
-
-  // 3D Objects
   private carGroup: any;
-  private roadMesh: any;
   private envGroup: any; 
   private obstacleGroup: any; 
-  private particleGroup: any; 
-  private groundMesh: any;
-  private skyColor: any;
-
-  // Physics Logic
-  private speed = 0; 
-  private maxSpeed = 4.8; 
-  private carX = 0; 
-  private targetCarX = 0; 
+  private coinGroup: any;
   
-  // Drifting Specifics
-  private driftFactor = 0; // 0 to 1 intensity
-  private driftDirection = 0; // -1 Left, 1 Right
-  
-  // --- Audio Engine ---
+  // Audio
   private audioCtx: AudioContext | null = null;
-  private engineSource: AudioBufferSourceNode | null = null;
-  private engineBuffer: AudioBuffer | null = null;
+  private engineOsc1: OscillatorNode | null = null; 
+  private engineOsc2: OscillatorNode | null = null; 
   private engineGain: GainNode | null = null;
-  private driftOsc: OscillatorNode | null = null;
-  private driftGain: GainNode | null = null;
+  private bgmAudio: HTMLAudioElement | null = null;
   
-  // Loop Handles
-  private detectionFrameId: number | null = null;
-  private animationFrameId: number | null = null;
+  // Loops
+  private animId: number | null = null;
+  private cvId: number | null = null;
+  private handLandmarker: any;
+  private webcamRunning = false;
+  private keydownListener: any;
 
   constructor() {
-    this.loadStats();
+    this.loadSaveData();
   }
 
   ngAfterViewInit(): void {
-    // The video element is now persistent in DOM
-  }
-
-  // --- Local Storage Persistence ---
-  loadStats() {
-    try {
-        const savedHigh = localStorage.getItem('soumoditya_racer_highScore');
-        const savedLast = localStorage.getItem('soumoditya_racer_lastScore');
-        if (savedHigh) this.highScore.set(parseInt(savedHigh, 10));
-        if (savedLast) this.lastScore.set(parseInt(savedLast, 10));
-    } catch (e) { console.warn("Storage access failed", e); }
-  }
-
-  saveStats() {
-    try {
-        localStorage.setItem('soumoditya_racer_lastScore', this.score().toString());
-        this.lastScore.set(this.score());
-        if (this.score() > this.highScore()) {
-            this.highScore.set(this.score());
-            localStorage.setItem('soumoditya_racer_highScore', this.score().toString());
+    this.keydownListener = (e: KeyboardEvent) => {
+        if (this.gameState() === 'RUNNING' && (e.key.toLowerCase() === 'p' || e.key === 'Escape')) {
+            this.togglePause();
         }
-    } catch (e) {}
+    };
+    window.addEventListener('keydown', this.keydownListener);
   }
 
-  // --- MAIN ENTRY POINT ---
+  loadSaveData() {
+      const save = localStorage.getItem('gesture_racer_v7');
+      if (save) {
+          const data = JSON.parse(save);
+          this.coins.set(data.coins || 0);
+          
+          const updatedCatalog = CAR_CATALOG.map(c => {
+              const saved = data.unlockedCars?.find((u: string) => u === c.id);
+              if (saved) c.unlocked = true;
+              return c;
+          });
+          this.availableCars.set(updatedCatalog);
+          this.selectedCarId.set(data.selectedCar || 'starter_red');
+      }
+  }
+
+  saveData() {
+      const data = {
+          coins: this.coins(),
+          unlockedCars: this.availableCars().filter(c => c.unlocked).map(c => c.id),
+          selectedCar: this.selectedCarId()
+      };
+      localStorage.setItem('gesture_racer_v7', JSON.stringify(data));
+  }
+
+  buyCar(car: CarModel) {
+      if (car.unlocked) {
+          this.selectedCarId.set(car.id);
+          this.saveData();
+      } else if (this.coins() >= car.price) {
+          this.coins.update(c => c - car.price);
+          car.unlocked = true;
+          this.availableCars.update(cars => [...cars]); 
+          this.selectedCarId.set(car.id);
+          this.saveData();
+      }
+  }
+
   async startGame(): Promise<void> {
     this.gameState.set('LOADING');
-    this.loadingMessage.set('Checking System Capabilities...');
-    
     try {
       if (!this.audioCtx) await this.initAudio();
       
       if (!this.handLandmarker) {
-          this.loadingMessage.set('Initializing Computer Vision (MediaPipe)...');
-          await this.setupHandLandmarker();
-          this.loadingMessage.set('Requesting Camera Access...');
-          await this.setupWebcam();
+          this.loadingMessage.set('Calibrating AI Vision...');
+          await this.setupCV();
       }
-
-      this.loadingMessage.set('Generating 3D Environment...');
-      this.initThreeJS();
       
-      this.restartGame();
-      if (!this.detectionFrameId) this.predictWebcam();
-
-    } catch (error: any) {
-      console.error("Game Startup Error [Soumoditya]:", error);
-      let msg = 'Error: System Failure.';
-      if (error.name === 'NotAllowedError' || error.message.includes('permission')) {
-          msg = 'Error: Camera Permission Denied. Please allow access.';
-      } else if (error.name === 'NotFoundError') {
-          msg = 'Error: No Camera Found.';
-      } else if (!window.isSecureContext) {
-          msg = 'Error: HTTPS Required for Camera.';
-      }
-      this.loadingMessage.set(msg);
+      this.initThreeJS();
+      this.resetGame();
+      
+      if (!this.cvId) this.predictWebcam();
+      
+    } catch (e) {
+      console.error(e);
+      this.loadingMessage.set('Error: Camera Permission Denied');
     }
   }
 
-  // --- AUDIO SYSTEM ---
-  async initAudio(): Promise<void> {
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-    this.audioCtx = new AudioContext();
-
-    const engineUrl = 'https://raw.githubusercontent.com/jakesgordon/javascript-racer/master/sounds/engine.mp3';
-    try {
-        const response = await fetch(engineUrl);
-        const arrayBuffer = await response.arrayBuffer();
-        this.engineBuffer = await this.audioCtx.decodeAudioData(arrayBuffer);
-    } catch (e) { 
-        console.warn("Audio Asset Failed. Game will be silent.", e); 
-    }
-
-    this.driftOsc = this.audioCtx.createOscillator();
-    this.driftOsc.type = 'sawtooth';
-    this.driftOsc.frequency.value = 80;
-    this.driftGain = this.audioCtx.createGain();
-    this.driftGain.gain.value = 0;
-    this.driftOsc.connect(this.driftGain);
-    this.driftGain.connect(this.audioCtx.destination);
-    this.driftOsc.start();
-  }
-
-  startEngineSound(): void {
-    if (!this.audioCtx || !this.engineBuffer) return;
-    if (this.engineSource) try { this.engineSource.stop(); } catch(e){}
-
-    this.engineSource = this.audioCtx.createBufferSource();
-    this.engineSource.buffer = this.engineBuffer;
-    this.engineSource.loop = true;
-
-    this.engineGain = this.audioCtx.createGain();
-    this.engineGain.gain.value = 0.1; 
-
-    this.engineSource.connect(this.engineGain);
-    this.engineGain.connect(this.audioCtx.destination);
-    this.engineSource.start(0);
-  }
-
-  updateAudio(dt: number): void {
-    if (!this.audioCtx || !this.engineSource || !this.engineGain) return;
-    
-    const kph = this.speedKph();
-    let gear = 1;
-    let minSpeed = 0;
-    let maxSpeedForGear = 80;
-
-    // --- GEAR LOGIC (Soumoditya's Tuning) ---
-    if (kph < 80) { gear = 1; minSpeed = 0; maxSpeedForGear = 80; }
-    else if (kph < 160) { gear = 2; minSpeed = 80; maxSpeedForGear = 160; }
-    else if (kph < 220) { gear = 3; minSpeed = 160; maxSpeedForGear = 220; }
-    else if (kph < 280) { gear = 4; minSpeed = 220; maxSpeedForGear = 280; }
-    else if (kph < 340) { gear = 5; minSpeed = 280; maxSpeedForGear = 340; }
-    else { gear = 6; minSpeed = 340; maxSpeedForGear = 450; }
-
-    this.currentGear.set(gear);
-
-    let rpm = (kph - minSpeed) / (maxSpeedForGear - minSpeed);
-    rpm = Math.max(0.3, Math.min(1, rpm));
-
-    // RPM flares when drifting
-    if (this.driftFactor > 0.5) rpm = Math.min(1.0, rpm + 0.2);
-
-    const basePitch = 0.6 + (gear * 0.05); 
-    const pitchRange = 0.7; 
-    const targetPitch = basePitch + (rpm * pitchRange);
-
-    this.engineSource.playbackRate.setTargetAtTime(targetPitch, this.audioCtx.currentTime, 0.1);
-    
-    const load = this.currentDriveState() === DriveState.ACCELERATING ? 0.3 : 0.0;
-    const targetVol = 0.15 + (this.speed * 0.1) + load;
-    this.engineGain.gain.setTargetAtTime(targetVol, this.audioCtx.currentTime, 0.1);
-
-    if (this.driftGain) {
-        // Drift sound linked to drift factor
-        const driftVol = this.driftFactor * 0.5;
-        this.driftGain.gain.setTargetAtTime(driftVol, this.audioCtx.currentTime, 0.1);
-    }
-  }
-
-  playCrashSound(): void {
-    if (!this.audioCtx) return;
-    const bufferSize = this.audioCtx.sampleRate * 1.5; 
-    const buffer = this.audioCtx.createBuffer(1, bufferSize, this.audioCtx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2); 
-    }
-
-    const noise = this.audioCtx.createBufferSource();
-    noise.buffer = buffer;
-    
-    const filter = this.audioCtx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 800;
-
-    const gain = this.audioCtx.createGain();
-    gain.gain.setValueAtTime(1.0, this.audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 1.2);
-
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.audioCtx.destination);
-    noise.start();
-  }
-
-  stopAudio(): void {
-    if (this.engineSource) {
-        try { this.engineSource.stop(); } catch(e){}
-        this.engineSource = null;
-    }
-    if (this.driftGain) this.driftGain.gain.value = 0;
-  }
-
-  // --- THREE.JS GRAPHICS ENGINE ---
-  initThreeJS(): void {
-    if (this.scene) return; 
-
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-
-    this.scene = new THREE.Scene();
-    
-    this.skyColor = new THREE.Color(0x87CEEB);
-    this.scene.background = this.skyColor;
-    this.scene.fog = new THREE.Fog(this.skyColor, 20, 200);
-
-    this.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 500);
-    this.camera.position.set(0, 5, 8);
-    this.camera.lookAt(0, 0, -20);
-
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    this.renderer.setSize(width, height);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    
-    this.canvasContainer.nativeElement.innerHTML = '';
-    this.canvasContainer.nativeElement.appendChild(this.renderer.domElement);
-
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.9); 
-    this.scene.add(hemiLight);
-
-    const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    sunLight.position.set(-50, 100, 50);
-    sunLight.castShadow = true;
-    sunLight.shadow.mapSize.set(2048, 2048);
-    this.scene.add(sunLight);
-
-    this.envGroup = new THREE.Group();
-    this.scene.add(this.envGroup);
-    
-    this.obstacleGroup = new THREE.Group();
-    this.scene.add(this.obstacleGroup);
-
-    this.particleGroup = new THREE.Group();
-    this.scene.add(this.particleGroup);
-
-    this.createCar();
-    this.createWorld();
-
-    this.clock = new THREE.Clock();
-
-    window.addEventListener('resize', () => {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-  }
-
-  createCar(): void {
-    this.carGroup = new THREE.Group();
-    // HERO CAR - Detailed
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe60000, roughness: 0.2, metalness: 0.6 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.0, metalness: 0.8 });
-    
-    // Main Chassis
-    const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.6, 4.4), bodyMat);
-    chassis.position.y = 0.6;
-    chassis.castShadow = true;
-    this.carGroup.add(chassis);
-
-    // Upper Cabin (Slanted)
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.45, 2.2), glassMat);
-    cabin.position.set(0, 1.1, -0.3);
-    this.carGroup.add(cabin);
-
-    // Spoiler
-    const spoilerPostL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1), bodyMat);
-    spoilerPostL.position.set(0.6, 1.0, 2.0);
-    const spoilerPostR = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1), bodyMat);
-    spoilerPostR.position.set(-0.6, 1.0, 2.0);
-    const spoilerWing = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.05, 0.6), bodyMat);
-    spoilerWing.position.set(0, 1.2, 2.0);
-    this.carGroup.add(spoilerPostL, spoilerPostR, spoilerWing);
-
-    // Rear Lights (Glowing)
-    const tailLightGeo = new THREE.BoxGeometry(0.6, 0.15, 0.1);
-    const tailLightMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2 });
-    const tl = new THREE.Mesh(tailLightGeo, tailLightMat);
-    tl.position.set(-0.6, 0.7, 2.21);
-    const tr = new THREE.Mesh(tailLightGeo, tailLightMat);
-    tr.position.set(0.6, 0.7, 2.21);
-    this.carGroup.add(tl, tr);
-
-    // Wheels
-    const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.45, 24);
-    wheelGeo.rotateZ(Math.PI / 2);
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-    
-    [ {x:1.05, z:1.3}, {x:-1.05, z:1.3}, {x:1.05, z:-1.3}, {x:-1.05, z:-1.3} ].forEach(pos => {
-        const w = new THREE.Mesh(wheelGeo, wheelMat);
-        w.position.set(pos.x, 0.38, pos.z);
-        this.carGroup.add(w);
-    });
-
-    // Shadow
-    const shadow = new THREE.Mesh(
-        new THREE.PlaneGeometry(2.4, 4.8),
-        new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6 })
-    );
-    shadow.rotation.x = -Math.PI/2;
-    shadow.position.y = 0.05;
-    this.carGroup.add(shadow);
-
-    this.scene.add(this.carGroup);
-  }
-
-  // --- TRAFFIC GENERATOR ---
-  createNPCMesh(type: 'SEDAN' | 'TRUCK' | 'SPORT', colorHex: number): any {
-     const npc = new THREE.Group();
-     const mainColor = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.4, metalness: 0.3 });
-     const glass = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.1 });
-     const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-     
-     if (type === 'SEDAN') {
-         const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.7, 4.2), mainColor);
-         body.position.y = 0.6;
-         body.castShadow = true;
-         
-         const top = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 2.0), glass);
-         top.position.set(0, 1.2, 0);
-         
-         npc.add(body, top);
-     } 
-     else if (type === 'TRUCK') {
-         const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.8, 5.0), new THREE.MeshStandardMaterial({ color: 0x333333 }));
-         chassis.position.y = 0.8;
-         chassis.castShadow = true;
-         
-         const cab = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.0, 1.5), mainColor);
-         cab.position.set(0, 1.6, -1.5);
-         
-         const cargo = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.2, 3.0), mainColor);
-         cargo.position.set(0, 1.5, 1.0);
-
-         npc.add(chassis, cab, cargo);
-     }
-     else if (type === 'SPORT') {
-         const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.5, 4.0), mainColor);
-         body.position.y = 0.5;
-         body.castShadow = true;
-
-         const top = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.4, 1.5), glass);
-         top.position.set(0, 0.95, -0.2);
-         
-         // Spoiler
-         const wing = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.05, 0.4), new THREE.MeshStandardMaterial({color:0x111111}));
-         wing.position.set(0, 1.0, 1.8);
-         
-         npc.add(body, top, wing);
-     }
-
-     // Common Parts: Wheels
-     const wGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.4, 16);
-     wGeo.rotateZ(Math.PI/2);
-     const positions = [ {x:0.9, z:1.2}, {x:-0.9, z:1.2}, {x:0.9, z:-1.2}, {x:-0.9, z:-1.2} ];
-     
-     // Adjust for Truck
-     if (type === 'TRUCK') {
-         positions.push({x:0.9, z:0}, {x:-0.9, z:0}); // 6 wheeler
-     }
-
-     positions.forEach(p => {
-         const w = new THREE.Mesh(wGeo, wheelMat);
-         w.position.set(p.x, 0.4, p.z);
-         npc.add(w);
-     });
-
-     // Lights
-     const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffaa });
-     const tlMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-     
-     // Front
-     const hl1 = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.2), hlMat);
-     hl1.position.set(-0.6, 0.8, -2.1); 
-     if (type === 'TRUCK') hl1.position.z = -2.5; // adjust for truck length
-     if (type === 'SEDAN') hl1.position.z = -2.11;
-     if (type === 'SPORT') hl1.position.z = -2.01;
-     hl1.rotation.y = Math.PI;
-     
-     const hl2 = hl1.clone();
-     hl2.position.x = 0.6;
-     
-     // Back
-     const tl1 = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.2), tlMat);
-     tl1.position.set(-0.6, 0.8, 2.1);
-     if (type === 'TRUCK') tl1.position.z = 2.51;
-     if (type === 'SEDAN') tl1.position.z = 2.11;
-     if (type === 'SPORT') tl1.position.z = 2.01;
-
-     const tl2 = tl1.clone();
-     tl2.position.x = 0.6;
-
-     npc.add(hl1, hl2, tl1, tl2);
-
-     return npc;
-  }
-
-  createWorld(): void {
-    const roadGeo = new THREE.PlaneGeometry(28, 400);
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6 });
-    this.roadMesh = new THREE.Mesh(roadGeo, roadMat);
-    this.roadMesh.rotation.x = -Math.PI / 2;
-    this.roadMesh.receiveShadow = true;
-    this.scene.add(this.roadMesh);
-
-    // Procedural Road Markings
-    for (let i = 0; i < 20; i++) {
-        const lineGeo = new THREE.PlaneGeometry(0.25, 10);
-        const yMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
-        
-        const c1 = new THREE.Mesh(lineGeo, yMat);
-        c1.rotation.x = -Math.PI / 2;
-        c1.position.set(-0.3, 0.02, -i * 20);
-        this.envGroup.add(c1);
-        
-        const c2 = new THREE.Mesh(lineGeo, yMat);
-        c2.rotation.x = -Math.PI / 2;
-        c2.position.set(0.3, 0.02, -i * 20);
-        this.envGroup.add(c2);
-        
-        const wMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-        const l1 = new THREE.Mesh(lineGeo, wMat);
-        l1.rotation.x = -Math.PI / 2;
-        l1.position.set(-7, 0.02, -i * 20);
-        this.envGroup.add(l1);
-
-        const l2 = new THREE.Mesh(lineGeo, wMat);
-        l2.rotation.x = -Math.PI / 2;
-        l2.position.set(7, 0.02, -i * 20);
-        this.envGroup.add(l2);
-    }
-
-    const groundGeo = new THREE.PlaneGeometry(600, 600, 48, 48);
-    const pos = groundGeo.attributes.position;
-    for(let i=0; i<pos.count; i++) {
-        const x = pos.getX(i);
-        if (Math.abs(x) > 16) pos.setZ(i, Math.random() * 6 + Math.abs(x) * 0.1); 
-    }
-    groundGeo.computeVertexNormals();
-    this.groundMesh = new THREE.Mesh(
-        groundGeo, 
-        new THREE.MeshStandardMaterial({ color: 0x55aa55, roughness: 1 })
-    );
-    this.groundMesh.rotation.x = -Math.PI / 2;
-    this.groundMesh.position.y = -0.2;
-    this.scene.add(this.groundMesh);
-
-    for(let i=0; i<120; i++) this.spawnTree();
-    for(let i=0; i<15; i++) this.spawnCloud();
-  }
-
-  spawnTree(): void {
-    const group = new THREE.Group();
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.8, 2.5), new THREE.MeshStandardMaterial({ color: 0x4a3c31 }));
-    trunk.position.y = 1.25;
-    const leaves = new THREE.Mesh(new THREE.IcosahedronGeometry(3, 0), new THREE.MeshStandardMaterial({ color: 0x2e8b57 }));
-    leaves.position.y = 4;
-    group.add(trunk, leaves);
-    
-    const side = Math.random() > 0.5 ? 1 : -1;
-    const x = side * (20 + Math.random() * 150);
-    const z = (Math.random() * 400) - 200;
-    group.position.set(x, 0, z);
-    const s = 1.0 + Math.random() * 0.8;
-    group.scale.set(s,s,s);
-    this.envGroup.add(group);
-  }
-
-  spawnCloud(): void {
-     const geo = new THREE.DodecahedronGeometry(12);
-     const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
-     const cloud = new THREE.Mesh(geo, mat);
-     cloud.position.set((Math.random()-0.5)*500, 60+Math.random()*40, (Math.random()*400)-200);
-     this.envGroup.add(cloud);
-  }
-
-  // --- GAME LOOP ---
-  restartGame(): void {
+  resetGame(): void {
     this.score.set(0);
     this.speed = 0;
-    this.distanceTraveled = 0;
     this.carX = 0;
-    this.targetCarX = 0;
-    this.driftFactor = 0;
-    this.currentDriveState.set(DriveState.IDLE);
+    this.targetSteer = 0;
+    this.currentSteer = 0;
+    this.carHealth = 100;
     this.gameState.set('RUNNING');
-
-    this.obstacleGroup.clear();
-    this.particleGroup.clear();
+    this.isPaused.set(false);
     
-    this.skyColor.setHex(0x87CEEB);
-    this.scene.background = this.skyColor;
-    this.scene.fog.color = this.skyColor;
-    this.groundMesh.material.color.setHex(0x55aa55);
-
-    this.envGroup.children.forEach((c: any) => {
-        if (c.position.z > 50) c.position.z -= 400;
-    });
-
-    this.startEngineSound();
-
-    // Initial Safe Traffic
-    for(let i=0; i<4; i++) {
-        this.spawnTraffic(-80 - (i*60), true);
-    }
-
-    this.carGroup.position.set(7, 0, 0); 
-    this.carGroup.rotation.set(0, 0, 0);
-
-    if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
+    this.obstacleGroup.clear();
+    this.coinGroup.clear();
+    this.envGroup.clear();
+    
+    this.createPlayerCar();
+    for(let i=0; i<80; i++) this.spawnTree();
+    
+    this.startAudio();
+    if (this.animId) cancelAnimationFrame(this.animId);
     this.animate();
   }
 
-  animate(): void {
-    if (this.gameState() !== 'RUNNING') return;
-
-    const dt = this.clock.getDelta();
-    this.updatePhysics(dt);
-    this.updateEnvironment(dt);
-    this.updateParticles(dt);
-    this.updateAudio(dt);
-    this.updateCamera(dt);
-
-    this.renderer.render(this.scene, this.camera);
-    this.animationFrameId = requestAnimationFrame(() => this.animate());
+  togglePause() {
+      this.isPaused.update(p => !p);
+      if(this.isPaused()) {
+          this.audioCtx?.suspend();
+          this.bgmAudio?.pause();
+          this.clock.stop();
+      } else {
+          this.audioCtx?.resume();
+          this.bgmAudio?.play();
+          this.clock.start();
+          this.animate();
+      }
   }
 
-  updatePhysics(dt: number): void {
-    const state = this.currentDriveState();
+  // --- THREE.JS SCENE ---
+  initThreeJS(): void {
+    if (this.scene) return;
+
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x87CEEB); 
+    this.scene.fog = new THREE.Fog(0x87CEEB, 20, 500);
+
+    this.camera = new THREE.PerspectiveCamera(60, w/h, 0.1, 1000);
+    this.camera.position.set(0, 4, 7);
+    this.camera.lookAt(0, 0, -20);
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    this.renderer.setSize(w, h);
+    this.renderer.shadowMap.enabled = true;
+    this.canvasContainer.nativeElement.appendChild(this.renderer.domElement);
+
+    // Lights
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.8);
+    this.scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(50, 200, 100);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    this.scene.add(dirLight);
+
+    this.envGroup = new THREE.Group();
+    this.obstacleGroup = new THREE.Group();
+    this.coinGroup = new THREE.Group();
+    this.carGroup = new THREE.Group();
     
-    // Acceleration Logic
-    if (state === DriveState.ACCELERATING) {
-        const accel = 0.6 * (1.0 - (this.speed / this.maxSpeed) * 0.5);
-        this.speed = Math.min(this.maxSpeed, this.speed + accel * dt);
-    } else if (state === DriveState.BRAKING) {
-        this.speed = Math.max(0, this.speed - 5.0 * dt); 
-    } else {
-        this.speed = Math.max(0, this.speed - 0.2 * dt);
-    }
+    this.scene.add(this.envGroup, this.obstacleGroup, this.coinGroup, this.carGroup);
 
-    const kph = Math.floor(this.speed * 80);
-    this.speedKph.set(kph);
+    // Ground
+    const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(2000, 2000),
+        new THREE.MeshStandardMaterial({ color: 0x4ade80, roughness: 1 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.1;
+    ground.receiveShadow = true;
+    this.scene.add(ground);
+
+    // Road
+    const road = new THREE.Mesh(
+        new THREE.PlaneGeometry(24, 2000),
+        new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 })
+    );
+    road.rotation.x = -Math.PI / 2;
+    road.receiveShadow = true;
+    this.scene.add(road);
     
-    // Score increases faster when drifting
-    const scoreMult = 1 + (this.driftFactor * 2);
-    this.score.update(s => s + Math.floor(this.speed * 15 * scoreMult * dt));
+    // Lane Markings
+    const lineGeo = new THREE.PlaneGeometry(0.5, 2000);
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const lineLeft = new THREE.Mesh(lineGeo, lineMat);
+    lineLeft.position.set(-6, 0.01, 0);
+    lineLeft.rotation.x = -Math.PI/2;
     
-    this.distanceTraveled += this.speed * dt;
+    const lineRight = new THREE.Mesh(lineGeo, lineMat);
+    lineRight.position.set(6, 0.01, 0);
+    lineRight.rotation.x = -Math.PI/2;
+    this.scene.add(lineLeft, lineRight);
 
-    // --- ENHANCED DRIFT PHYSICS ---
-    // Steering input difference
-    let turnInput = this.targetCarX - this.carX;
-    
-    // Slip Angle Calculation
-    // If turning hard at high speed, traction breaks
-    const turnMagnitude = Math.abs(turnInput);
-    if (this.speed > 1.5 && turnMagnitude > 0.4) {
-        // Build up drift
-        this.driftFactor = Math.min(1.0, this.driftFactor + dt * 2.0);
-        this.driftDirection = turnInput > 0 ? 1 : -1;
-    } else {
-        // Regain traction
-        this.driftFactor = Math.max(0.0, this.driftFactor - dt * 3.0);
-    }
-
-    // Apply Lateral Movement
-    // When drifting, movement is "looser" (slides more)
-    const grip = 1.0 - (this.driftFactor * 0.7); // Less grip = smoother slide
-    const response = 5.0 * grip;
-    
-    this.carX += turnInput * response * dt;
-    this.carX = Math.max(-11.5, Math.min(11.5, this.carX));
-    this.carGroup.position.x = this.carX;
-
-    // --- VISUAL ROTATION (Slip Angle) ---
-    // The car rotates MORE than the movement direction to simulate oversteer
-    // Base turn lean
-    let targetRotZ = -turnInput * 0.10;
-    let targetRotY = -turnInput * 0.05;
-
-    // Add Drift Oversteer to Y Rotation
-    if (this.driftFactor > 0.1) {
-        // If drifting right, car nose points right (negative Y rot in ThreeJS sometimes depending on orientation, 
-        // here we want the tail to slide out)
-        // Visually: Tail slides OUT (opposite to turn). 
-        // Actually for a drift: Nose points IN to turn, Car vector is OUT. 
-        // We simulate this by rotating the mesh deeply into the turn.
-        targetRotY -= (this.driftDirection * this.driftFactor * 0.4);
-        
-        // Spawn Tire Smoke
-        this.spawnExhaust(0.7, 0xaaaaaa, true);
-        this.spawnExhaust(-0.7, 0xaaaaaa, true);
-    } 
-    else if (this.speed > 2.0 && state === DriveState.ACCELERATING) {
-        // Normal Exhaust
-        if (Math.random() < 0.3) {
-            this.spawnExhaust(0.5, 0xffffff);
-            this.spawnExhaust(-0.5, 0xffffff);
-        }
-    }
-
-    this.carGroup.rotation.z = targetRotZ;
-    this.carGroup.rotation.y = targetRotY;
-
-    // Update HUD State
-    if (this.driftFactor > 0.5) {
-        this.currentSteerState.set(this.driftDirection > 0 ? SteeringState.DRIFT_RIGHT : SteeringState.DRIFT_LEFT);
-    } else {
-        if (turnInput > 0.2) this.currentSteerState.set(SteeringState.RIGHT);
-        else if (turnInput < -0.2) this.currentSteerState.set(SteeringState.LEFT);
-        else this.currentSteerState.set(SteeringState.STRAIGHT);
-    }
+    this.clock = new THREE.Clock();
   }
 
-  updateEnvironment(dt: number): void {
-    const moveDist = this.speed * 40 * dt;
-    const currentScore = this.score();
-    
-    // Progressive Difficulty
-    const difficulty = 1 + Math.min(2, currentScore / 5000);
-    
-    // Day/Night Cycle based on score
-    if (this.skyColor) {
-        const progress = Math.min(1, currentScore / 10000);
-        this.skyColor.setHSL(0.55 + (0.3 * progress), 0.6, 0.6 - (0.4 * progress));
-        this.scene.background = this.skyColor;
-        this.scene.fog.color = this.skyColor;
-    }
+  createPlayerCar() {
+      this.carGroup.clear();
+      const currentCar = this.availableCars().find(c => c.id === this.selectedCarId()) || CAR_CATALOG[0];
+      
+      const bodyMat = new THREE.MeshStandardMaterial({ color: currentCar.color, metalness: 0.6, roughness: 0.2 });
+      const glassMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.9, roughness: 0.1 });
+      
+      const chassis = new THREE.Mesh(new THREE.BoxGeometry(2, 0.6, 4.2), bodyMat);
+      chassis.position.y = 0.6;
+      chassis.castShadow = true;
+      this.carGroup.add(chassis);
 
-    this.envGroup.children.forEach((obj: any) => {
-        obj.position.z += moveDist;
-        if (obj.position.z > 50) {
-            obj.position.z -= 400;
-            if (obj.geometry && obj.geometry.type !== 'PlaneGeometry') {
-                 const xSide = obj.position.x > 0 ? 1 : -1;
-                 obj.position.x = xSide * (20 + Math.random() * 100);
-            }
-        }
-    });
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.6, 2.2), glassMat);
+      cabin.position.set(0, 1.1, -0.2);
+      this.carGroup.add(cabin);
 
-    // Traffic AI
-    const spawnChance = 0.01 + (difficulty * 0.015);
-    if (Math.random() < spawnChance) this.spawnTraffic(-250);
-
-    const toRemove: any[] = [];
-    
-    this.obstacleGroup.children.forEach((car: any) => {
-        const lane = car.userData.lane;
-        let carSpeed = 0;
-
-        if (lane < 0) {
-            carSpeed = (this.speed * 40) + (30 * difficulty); // Oncoming
-        } else {
-            carSpeed = (this.speed * 40) - 15; // Same way
-            if (this.speed < 0.5) carSpeed = -30;
-        }
-
-        car.position.z += carSpeed * dt;
-
-        // Smart Lane Changing AI
-        if (!car.userData.changingLane && Math.random() < (0.005 * difficulty)) {
-            const currentLane = car.userData.targetLane || lane;
-            if (currentLane > 0) {
-                car.userData.targetLane = currentLane === 2.5 ? 7 : 2.5;
-                car.userData.changingLane = true;
-            }
-        }
-
-        if (car.userData.changingLane) {
-            const target = car.userData.targetLane;
-            car.position.x += (target - car.position.x) * 2.0 * dt;
-            car.rotation.y = (target - car.position.x) * -0.1;
-            
-            if (Math.abs(car.position.x - target) < 0.1) {
-                car.position.x = target;
-                car.userData.lane = target; 
-                car.rotation.y = 0;
-                car.userData.changingLane = false;
-            }
-        }
-
-        // Improved Collision Box
-        // Since we have models now, use a slightly tighter box
-        if (Math.abs(car.position.z - this.carGroup.position.z) < 3.5 && 
-            Math.abs(car.position.x - this.carGroup.position.x) < 1.8) {
-            this.crash();
-        }
-
-        if (car.position.z > 50 || car.position.z < -450) toRemove.push(car);
-    });
-    toRemove.forEach(c => this.obstacleGroup.remove(c));
+      // Wheels
+      const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.5, 16);
+      wheelGeo.rotateZ(Math.PI/2);
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+      
+      [ {x:1.1, z:1.3}, {x:-1.1, z:1.3}, {x:1.1, z:-1.3}, {x:-1.1, z:-1.3} ].forEach(p => {
+          const w = new THREE.Mesh(wheelGeo, wheelMat);
+          w.position.set(p.x, 0.4, p.z);
+          w.castShadow = true;
+          this.carGroup.add(w);
+      });
   }
 
-  spawnTraffic(zPos: number, safeMode = false): void {
-    const lanes = [-7, -2.5, 2.5, 7];
-    const chosenLanes = safeMode ? [-7, 7] : lanes;
-    const lane = chosenLanes[Math.floor(Math.random() * chosenLanes.length)];
-    
-    for (const c of this.obstacleGroup.children) {
-        if (Math.abs(c.position.z - zPos) < 30) return;
-    }
-
-    const colors = [0xff0000, 0x0000ff, 0xeeee00, 0xffffff, 0x111111, 0x00ff00, 0xff00ff];
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    
-    // Random Type
-    const types: ('SEDAN' | 'TRUCK' | 'SPORT')[] = ['SEDAN', 'SEDAN', 'TRUCK', 'SPORT'];
-    const type = types[Math.floor(Math.random() * types.length)];
-
-    const mesh = this.createNPCMesh(type, color);
-    mesh.position.set(lane, 0, zPos);
-    
-    // Rotate 180 if oncoming
-    if (lane < 0) {
-        mesh.rotation.y = Math.PI;
-    }
-
-    mesh.userData = { lane, targetLane: lane, changingLane: false };
-    this.obstacleGroup.add(mesh);
+  spawnTree() {
+      const tree = new THREE.Group();
+      
+      const trunk = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.4, 0.6, 2, 8), 
+          new THREE.MeshStandardMaterial({color: 0x78350f})
+      );
+      trunk.position.y = 1;
+      trunk.castShadow = true;
+      
+      const leaves = new THREE.Mesh(
+          new THREE.ConeGeometry(2, 5, 8),
+          new THREE.MeshStandardMaterial({color: 0x15803d})
+      );
+      leaves.position.y = 4;
+      leaves.castShadow = true;
+      
+      tree.add(trunk, leaves);
+      
+      const x = (Math.random() > 0.5 ? 1 : -1) * (16 + Math.random() * 60);
+      const z = (Math.random() * 1000) - 500;
+      tree.position.set(x, 0, z);
+      
+      const s = 0.8 + Math.random() * 0.5;
+      tree.scale.set(s,s,s);
+      
+      this.envGroup.add(tree);
   }
 
-  spawnExhaust(xOff: number, color: number, isSmoke = false): void {
-    const size = isSmoke ? 0.4 : 0.15;
-    const opacity = isSmoke ? 0.3 : 0.6;
-    
-    const geo = new THREE.BoxGeometry(size, size, size);
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity });
-    const p = new THREE.Mesh(geo, mat);
-    
-    // Smoke comes from tires, exhaust from pipes
-    const yPos = isSmoke ? 0.2 : 0.5;
-    const zPos = isSmoke ? 1.5 : 2.5;
+  // --- MAIN LOOP ---
+  animate() {
+      if (this.isPaused() || this.gameState() !== 'RUNNING') return;
 
-    p.position.set(this.carGroup.position.x + xOff, yPos, zPos);
-    
-    // Smoke expands, exhaust shoots back
-    const expansion = isSmoke ? 1.05 : 1.0;
-    
-    p.userData = { 
-        life: 0.4, 
-        vel: new THREE.Vector3((Math.random()-0.5)*0.2, Math.random()*0.2, isSmoke ? 2 : 5),
-        expansion
-    };
-    this.particleGroup.add(p);
+      const dt = this.clock.getDelta();
+      const currentCar = this.availableCars().find(c => c.id === this.selectedCarId()) || CAR_CATALOG[0];
+
+      // 1. Acceleration Physics
+      const maxSpeed = this.maxSpeedBase * currentCar.speedMult;
+      
+      if (this.currentDriveState() === 'GAS') {
+          this.speed += 3.0 * dt; 
+          if(this.speed > maxSpeed) this.speed = maxSpeed;
+      } else if (this.currentDriveState() === 'BRAKING') {
+          this.speed -= 6.0 * dt; 
+          if(this.speed < 0) this.speed = 0;
+      } else {
+          this.speed -= 1.0 * dt; 
+          if(this.speed < 0) this.speed = 0;
+      }
+
+      // 2. Steering Physics (LERP SMOOTHING)
+      this.currentSteer += (this.targetSteer - this.currentSteer) * LERP_FACTOR;
+      
+      const handling = 12.0 * currentCar.handlingMult;
+      const turnAmount = this.currentSteer * handling * dt;
+      
+      this.carX += turnAmount;
+      this.carX = Math.max(-10, Math.min(10, this.carX)); 
+      
+      this.carGroup.position.x = this.carX;
+      this.carGroup.rotation.z = -this.currentSteer * 0.4; 
+      this.carGroup.rotation.y = -this.currentSteer * 0.2;
+
+      // 3. Stats & Audio
+      const kph = Math.floor(this.speed * 60);
+      this.speedKph.set(kph);
+      
+      let g = 1;
+      if (kph > 160) g = 5;
+      else if (kph > 120) g = 4;
+      else if (kph > 80) g = 3;
+      else if (kph > 40) g = 2;
+      this.currentGear.set(g);
+
+      // Audio Engine Logic
+      if (this.engineOsc1 && this.engineOsc2 && this.audioCtx) {
+          const minSpeedForGear = (g - 1) * 40;
+          const range = 40;
+          const rpmNorm = Math.min(1, Math.max(0, (kph - minSpeedForGear) / range));
+          
+          const base1 = 60 + (g * 20); 
+          const base2 = 62 + (g * 20); 
+          
+          const targetFreq1 = base1 + (rpmNorm * 80);
+          const targetFreq2 = base2 + (rpmNorm * 85);
+
+          this.engineOsc1.frequency.setTargetAtTime(targetFreq1, this.audioCtx.currentTime, 0.1);
+          this.engineOsc2.frequency.setTargetAtTime(targetFreq2, this.audioCtx.currentTime, 0.1);
+          
+          const idleWobble = (kph < 5) ? 0.05 * Math.sin(this.audioCtx.currentTime * 10) : 0;
+          this.engineGain!.gain.setTargetAtTime(0.15 + (rpmNorm * 0.1) + idleWobble, this.audioCtx.currentTime, 0.1);
+      }
+
+      // 4. Move World
+      const moveZ = this.speed * 40 * dt;
+      this.score.update(s => s + Math.floor(moveZ));
+      
+      this.envGroup.children.forEach((obj: any) => {
+          obj.position.z += moveZ;
+          if(obj.position.z > 50) {
+              obj.position.z -= 1000;
+              obj.position.x = (Math.random() > 0.5 ? 1 : -1) * (16 + Math.random() * 60);
+          }
+      });
+
+      this.updateObstacles(dt, moveZ);
+      this.renderer.render(this.scene, this.camera);
+      this.animId = requestAnimationFrame(() => this.animate());
   }
 
-  updateParticles(dt: number): void {
-    const dead: any[] = [];
-    this.particleGroup.children.forEach((p: any) => {
-        p.userData.life -= dt;
-        p.position.addScaledVector(p.userData.vel, dt * 10);
-        
-        if (p.userData.expansion > 1.0) {
-             p.scale.multiplyScalar(1.0 + (dt * 2)); // rapid expansion for smoke
-             p.rotation.z += dt * 2;
-        } else {
-             p.scale.multiplyScalar(1.05);
-        }
+  updateObstacles(dt: number, moveZ: number) {
+      if (Math.random() < 0.015) this.spawnTraffic();
+      if (Math.random() < 0.01) this.spawnCoin();
 
-        p.material.opacity = p.userData.life;
-        if (p.userData.life <= 0) dead.push(p);
-    });
-    dead.forEach(d => this.particleGroup.remove(d));
+      const toRemove: any[] = [];
+      this.obstacleGroup.children.forEach((obs: any) => {
+          const trafficSpeed = obs.userData.isOncoming ? 30 : 20; 
+          const relSpeed = (this.speed * 40) - (obs.userData.isOncoming ? -trafficSpeed : trafficSpeed);
+          
+          obs.position.z += relSpeed * dt;
+          
+          // Collision
+          if (Math.abs(obs.position.z) < 3.5 && Math.abs(obs.position.x - this.carX) < 2.0) {
+              this.crash();
+          }
+          if (obs.position.z > 50) toRemove.push(obs);
+      });
+      toRemove.forEach(o => this.obstacleGroup.remove(o));
+
+      const coinsRem: any[] = [];
+      this.coinGroup.children.forEach((c: any) => {
+          c.position.z += moveZ;
+          c.rotation.y += 3 * dt;
+          
+          if (Math.abs(c.position.z) < 2 && Math.abs(c.position.x - this.carX) < 2) {
+              this.coins.update(v => v + 50);
+              this.aiSuggestion.set('+50 CREDITS');
+              coinsRem.push(c);
+          }
+          if (c.position.z > 20) coinsRem.push(c);
+      });
+      coinsRem.forEach(c => this.coinGroup.remove(c));
   }
 
-  updateCamera(dt: number): void {
-    const targetFov = 60 + (this.speed * 8);
-    this.camera.fov += (targetFov - this.camera.fov) * 2 * dt;
-    this.camera.updateProjectionMatrix();
-
-    let shakeX = 0;
-    let shakeY = 0;
-    if (this.speed > 3.0) {
-        shakeX = (Math.random() - 0.5) * 0.1;
-        shakeY = (Math.random() - 0.5) * 0.1;
-    }
-
-    const targetX = this.carX * 0.6;
-    
-    // Camera Lags behind drift to emphasize angle
-    let driftLag = 0;
-    if (this.driftFactor > 0.2) {
-        driftLag = -this.driftDirection * this.driftFactor * 2.0;
-    }
-
-    this.camera.position.x += ((targetX + driftLag) - this.camera.position.x) * 4 * dt + shakeX;
-    this.camera.position.y = 5 + (this.speed * 0.3) + shakeY;
-    this.camera.position.z = 9 + (this.speed * 1.5);
-    this.camera.lookAt(this.carX * 0.4, 0, -30);
+  spawnTraffic() {
+      const lane = [-6, -2, 2, 6][Math.floor(Math.random()*4)];
+      const car = new THREE.Mesh(
+          new THREE.BoxGeometry(2, 1, 4),
+          new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff })
+      );
+      car.position.set(lane, 0.5, -400);
+      car.castShadow = true;
+      car.userData = { isOncoming: lane < 0 };
+      this.obstacleGroup.add(car);
   }
 
-  crash(): void {
-    this.saveStats();
-    this.gameState.set('GAME_OVER');
-    this.stopAudio();
-    this.playCrashSound();
+  spawnCoin() {
+      const lane = [-6, -2, 2, 6][Math.floor(Math.random()*4)];
+      const coin = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.8, 0.8, 0.2, 16),
+          new THREE.MeshStandardMaterial({ color: 0xFFD700, metalness: 1, emissive: 0xFFD700, emissiveIntensity: 0.2 })
+      );
+      coin.rotation.x = Math.PI/2;
+      coin.position.set(lane, 1, -400);
+      this.coinGroup.add(coin);
   }
 
-  // --- COMPUTER VISION & INPUT HANDLING ---
-  async setupHandLandmarker(): Promise<void> {
-    // Dynamic Import for CDN robustness
-    // @ts-ignore
-    const { FilesetResolver, HandLandmarker } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/+esm');
-    const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/wasm");
-    this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-        delegate: "GPU",
-      },
-      runningMode: "VIDEO",
-      numHands: 2
-    });
+  crash() {
+      this.carHealth -= 50;
+      this.speed = 0;
+      this.currentSteer = 0; 
+      this.targetSteer = 0;
+      this.aiSuggestion.set('CRITICAL DAMAGE');
+      this.aiSuggestionType.set('DANGER');
+      
+      if(this.carHealth <= 0) {
+          this.gameState.set('GAME_OVER');
+          this.saveData();
+          this.stopAudio();
+      } else {
+          this.carX = -this.carX / 2;
+      }
   }
 
-  async setupWebcam(): Promise<void> {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Browser API 'navigator.mediaDevices' is missing. Ensure you are using HTTPS or localhost.");
-    }
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-        if (!this.video || !this.video.nativeElement) throw new Error("Video Element not initialized in DOM.");
-        this.video.nativeElement.srcObject = stream;
-        return new Promise((resolve) => {
-            this.video.nativeElement.addEventListener("loadeddata", () => {
-                this.webcamRunning = true;
-                resolve();
-            });
-        });
-    } catch (err) { throw err; }
+  // --- COMPUTER VISION ---
+  async setupCV() {
+      // @ts-ignore
+      const { FilesetResolver, HandLandmarker } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/+esm');
+      const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/wasm");
+      this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+          delegate: "GPU",
+        },
+        runningMode: "VIDEO",
+        numHands: 2
+      });
+      
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+      this.video.nativeElement.srcObject = stream;
+      await new Promise(r => this.video.nativeElement.onloadeddata = r);
+      this.webcamRunning = true;
   }
 
-  async predictWebcam(): Promise<void> {
-    if (!this.handLandmarker) return; 
-    const videoEl = this.video?.nativeElement;
-    if (this.webcamRunning && videoEl && videoEl.videoWidth > 0) {
-        const results = this.handLandmarker.detectForVideo(videoEl, performance.now());
-        if (results.landmarks) this.processInput(results.landmarks);
-    }
-    this.detectionFrameId = requestAnimationFrame(() => this.predictWebcam());
+  async predictWebcam() {
+      if(this.handLandmarker && this.webcamRunning) {
+          const results = this.handLandmarker.detectForVideo(this.video.nativeElement, performance.now());
+          if(results.landmarks) {
+              this.processHands(results.landmarks);
+              this.drawLandmarks(results.landmarks);
+          } else {
+              // Safety: If hand lost, brakes on
+              if(this.currentDriveState() !== 'NEUTRAL') {
+                  this.currentDriveState.set('BRAKING');
+              }
+          }
+      }
+      this.cvId = requestAnimationFrame(() => this.predictWebcam());
   }
 
-  processInput(landmarks: any[][]): void {
-    let steerInput = 0;
-    let isBraking = false;
-    for (const hand of landmarks) { if (this.isFist(hand)) isBraking = true; }
+  drawLandmarks(landmarks: any[][]) {
+      const canvas = this.landmarkCanvas.nativeElement;
+      const ctx = canvas.getContext('2d');
+      if(!ctx) return;
+      
+      canvas.width = this.video.nativeElement.videoWidth;
+      canvas.height = this.video.nativeElement.videoHeight;
+      ctx.clearRect(0,0, canvas.width, canvas.height);
+      
+      for(const hand of landmarks) {
+          const wrist = hand[0];
+          const middle = hand[9];
 
-    if (landmarks.length === 0) {
-        this.currentDriveState.set(DriveState.IDLE);
-    } else if (isBraking) {
-        this.currentDriveState.set(DriveState.BRAKING);
-    } else {
-        this.currentDriveState.set(DriveState.ACCELERATING);
-    }
+          const connections = [[0,1],[1,2],[2,3],[3,4], [0,5],[5,6],[6,7],[7,8], [5,9],[9,10],[10,11],[11,12], [9,13],[13,14],[14,15],[15,16], [13,17],[17,18],[18,19],[19,20], [0,17]];
+          
+          const state = this.currentDriveState();
+          ctx.strokeStyle = state === 'BRAKING' ? '#ef4444' : (state === 'GAS' ? '#22c55e' : '#facc15');
+          ctx.lineWidth = 3;
+          
+          for(const [i,j] of connections) {
+              const p1 = hand[i];
+              const p2 = hand[j];
+              ctx.beginPath();
+              ctx.moveTo(p1.x * canvas.width, p1.y * canvas.height);
+              ctx.lineTo(p2.x * canvas.width, p2.y * canvas.height);
+              ctx.stroke();
+          }
 
-    if (landmarks.length === 2) {
-        const h1 = landmarks[0][0];
-        const h2 = landmarks[1][0];
-        const left = h1.x < h2.x ? h1 : h2;
-        const right = h1.x < h2.x ? h2 : h1;
-        steerInput = (right.y - left.y) * 5.0;
-    } else if (landmarks.length === 1) {
-        const hand = landmarks[0];
-        const wrist = hand[0];
-        const mid = hand[9];
-        steerInput = (mid.x - wrist.x) * -7.0;
-    }
+          if(landmarks.length === 1) {
+              // Draw visual guide line
+              ctx.beginPath();
+              ctx.moveTo(wrist.x * canvas.width, wrist.y * canvas.height);
+              ctx.lineTo(middle.x * canvas.width, middle.y * canvas.height);
+              ctx.strokeStyle = 'white';
+              ctx.lineWidth = 2;
+              ctx.setLineDash([5, 5]);
+              ctx.stroke();
+              ctx.setLineDash([]);
+              
+              // Target Reticle
+              ctx.beginPath();
+              ctx.arc(middle.x * canvas.width, middle.y * canvas.height, 10, 0, 2*Math.PI);
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+              ctx.fill();
+          }
+      }
 
-    this.targetCarX += steerInput * 0.8;
-    this.targetCarX = Math.max(-11.5, Math.min(11.5, this.targetCarX));
+      if(landmarks.length === 2 && this.isTwoHandMode()) {
+          const h1 = landmarks[0][9];
+          const h2 = landmarks[1][9];
+          const cx = ((h1.x + h2.x) / 2) * canvas.width;
+          const cy = ((h1.y + h2.y) / 2) * canvas.height;
+          const radius = Math.max(40, Math.sqrt(Math.pow((h1.x - h2.x)*canvas.width, 2) + Math.pow((h1.y - h2.y)*canvas.height, 2)) / 2.2);
+
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(this.virtualSteerAngle() * (Math.PI / 180)); 
+          
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; 
+          ctx.lineWidth = 6;
+          ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+          ctx.stroke();
+          
+          ctx.beginPath();
+          ctx.moveTo(-radius, 0); ctx.lineTo(radius, 0);
+          ctx.stroke();
+          ctx.restore();
+      }
   }
 
-  isFist(lm: any[]): boolean {
-    const wrist = lm[0];
-    const tips = [lm[8], lm[12], lm[16], lm[20]];
-    const avgDist = tips.reduce((sum, t) => sum + Math.hypot(t.x - wrist.x, t.y - wrist.y), 0) / 4;
-    return avgDist < 0.35; 
+  processHands(landmarks: any[][]) {
+      let steerInput = 0; 
+      let driveState: 'GAS' | 'BRAKING' | 'NEUTRAL' = 'NEUTRAL';
+      
+      if(landmarks.length === 0) {
+          this.isTwoHandMode.set(false);
+          steerInput = 0; 
+          driveState = 'BRAKING'; // Auto brake if no hands
+      } else if (landmarks.length === 1) {
+          this.isTwoHandMode.set(false);
+          const hand = landmarks[0];
+          const wrist = hand[0];
+          const middleKnuckle = hand[9]; 
+          
+          // Tilt Logic:
+          const xDiff = middleKnuckle.x - wrist.x;
+          steerInput = xDiff * -7.0; // Increased sensitivity for easier control
+
+          // Fist Logic
+          const tips = [hand[8], hand[12], hand[16], hand[20]];
+          const avgDist = tips.reduce((s, t) => s + Math.hypot(t.x - wrist.x, t.y - wrist.y), 0) / 4;
+          
+          if (avgDist > 0.35) driveState = 'BRAKING'; 
+          else if (avgDist < 0.25) driveState = 'GAS'; 
+          else driveState = 'NEUTRAL';
+
+      } else if (landmarks.length === 2) {
+          this.isTwoHandMode.set(true);
+          const h1 = landmarks[0][9];
+          const h2 = landmarks[1][9];
+          
+          const left = h1.x < h2.x ? h1 : h2;
+          const right = h1.x < h2.x ? h2 : h1;
+          
+          const dy = right.y - left.y;
+          const dx = right.x - left.x;
+          
+          const angle = Math.atan2(dy, dx); 
+          steerInput = angle * -2.5; 
+          
+          this.virtualSteerAngle.set(angle * (180/Math.PI)); 
+          driveState = 'GAS'; 
+      }
+
+      steerInput = Math.max(-1, Math.min(1, steerInput));
+      this.targetSteer = steerInput;
+      this.currentDriveState.set(driveState);
   }
 
-  ngOnDestroy(): void {
-    if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
-    if (this.detectionFrameId) cancelAnimationFrame(this.detectionFrameId);
-    this.stopAudio();
-    if (this.audioCtx) this.audioCtx.close();
+  async initAudio() {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      this.audioCtx = new AudioCtx();
+      this.bgmAudio = new Audio(BGM_URL);
+      this.bgmAudio.loop = true;
+      this.bgmAudio.volume = 0.2; 
+  }
+  
+  startAudio() {
+      if(!this.audioCtx) return;
+      if(this.audioCtx.state === 'suspended') this.audioCtx.resume();
+      this.bgmAudio?.play().catch(() => {});
+
+      this.engineOsc1 = this.audioCtx.createOscillator();
+      this.engineOsc1.type = 'sawtooth';
+      
+      this.engineOsc2 = this.audioCtx.createOscillator();
+      this.engineOsc2.type = 'sawtooth';
+
+      this.engineGain = this.audioCtx.createGain();
+      this.engineGain.gain.value = 0.1; 
+      
+      const filter = this.audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 400;
+
+      this.engineOsc1.connect(filter);
+      this.engineOsc2.connect(filter);
+      filter.connect(this.engineGain);
+      this.engineGain.connect(this.audioCtx.destination);
+      
+      this.engineOsc1.start();
+      this.engineOsc2.start();
+  }
+  
+  stopAudio() {
+      if(this.engineOsc1) {
+          try { this.engineOsc1.stop(); this.engineOsc2?.stop(); } catch(e){}
+          this.engineOsc1 = null;
+          this.engineOsc2 = null;
+      }
+      this.bgmAudio?.pause();
+  }
+
+  ngOnDestroy() {
+      if(this.animId) cancelAnimationFrame(this.animId);
+      if(this.cvId) cancelAnimationFrame(this.cvId);
+      this.stopAudio();
+      this.audioCtx?.close();
+      window.removeEventListener('keydown', this.keydownListener);
   }
 }

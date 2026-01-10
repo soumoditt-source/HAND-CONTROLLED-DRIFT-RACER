@@ -6,8 +6,22 @@ import { AppComponent } from './src/app.component';
 
 /* 
  * Entry point for Gesture Racer 3D
- * Copyright (c) 2024 Soumoditya Das.
+ * Created by Soumoditya Das & Team Megatronix 2026
+ * The Official Tech Club of MSIT
  */
+
+// Service Worker Registration for Offline Capabilities (PWA)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(registration => {
+        console.log('SW registered: ', registration);
+      })
+      .catch(registrationError => {
+        console.log('SW registration failed: ', registrationError);
+      });
+  });
+}
 
 bootstrapApplication(AppComponent, {
   providers: [
