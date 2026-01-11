@@ -1,20 +1,28 @@
 
 <!-- 
-  GESTURE RACER: MEGATRONIX PRESENTATION EDITION
-  Ready for GitHub & Vercel
+  GESTURE RACER: MEGATRONIX EDITION (v9.8 FINAL)
+  - Garage 360 View
+  - Local Leaderboards
+  - Megatronix Branding
+  - 21-Point Landmark Visualizer
 -->
 
-<div class="relative w-full h-full bg-sky-300 overflow-hidden font-orbitron text-white select-none">
+<div class="relative w-full h-full bg-slate-900 overflow-hidden font-orbitron text-white select-none">
   
-  <!-- 3D WORLD -->
+  <!-- 3D WORLD / GARAGE VIEWER -->
   <div #canvasContainer class="absolute inset-0 z-0"></div>
+
+  <!-- DANGER OVERLAY -->
+  <div class="absolute inset-0 z-10 pointer-events-none transition-opacity duration-100 bg-red-600/30 mix-blend-overlay"
+       [class.opacity-100]="health() < 30 || aiSuggestionType() === 'DANGER'"
+       [class.opacity-0]="health() >= 30 && aiSuggestionType() !== 'DANGER'"></div>
 
   <!-- COMPUTER VISION HUD (Glassmorphism) -->
   <div class="absolute top-4 left-4 z-20 transition-all duration-300"
        [class.opacity-100]="gameState() === 'RUNNING'"
        [class.opacity-0]="gameState() !== 'RUNNING'">
        
-       <div class="relative w-48 md:w-64 h-36 md:h-48 rounded-2xl overflow-hidden border border-white/40 bg-white/10 shadow-xl backdrop-blur-md">
+       <div class="relative w-48 md:w-64 h-36 md:h-48 rounded-2xl overflow-hidden border border-white/40 bg-black/40 shadow-xl backdrop-blur-md">
            <!-- Mirror video -->
            <video #webcamVideo autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover transform scale-x-[-1] opacity-70"></video>
            <canvas #landmarkCanvas class="absolute inset-0 w-full h-full transform scale-x-[-1]"></canvas>
@@ -32,13 +40,13 @@
                </div>
            }
 
-           <div class="absolute top-0 w-full bg-black/40 text-[9px] text-center text-white/80 font-mono py-1">
-               MEGATRONIX AI VISION
+           <div class="absolute top-0 w-full bg-black/60 text-[9px] text-center text-white/90 font-mono py-1">
+               MEGATRONIX VISION
            </div>
        </div>
 
        <!-- Mode Indicator -->
-       <div class="mt-2 text-[10px] text-slate-800 bg-white/60 px-3 py-1 rounded-full inline-block border border-white/50 font-bold backdrop-blur">
+       <div class="mt-2 text-[10px] text-white bg-black/60 px-3 py-1 rounded-full inline-block border border-white/30 font-bold backdrop-blur">
            {{ isTwoHandMode() ? '👐 STEERING WHEEL' : '✊ JOYSTICK CONTROL' }}
        </div>
   </div>
@@ -47,19 +55,25 @@
   @if(gameState() === 'RUNNING') {
       <div class="absolute inset-0 z-10 flex flex-col justify-between p-4 pointer-events-none">
           
-          <!-- TOP RIGHT STATS -->
-          <div class="flex justify-end items-start gap-4 pointer-events-auto">
-              <div class="bg-white/20 backdrop-blur-md px-6 py-2 rounded-xl border border-white/30 flex flex-col items-end shadow-lg text-slate-900">
-                  <div class="text-[10px] tracking-widest uppercase mb-1 opacity-70">Score</div>
-                  <div class="text-2xl font-black">{{ score() }}</div>
+          <!-- TOP STATS -->
+          <div class="flex justify-between items-start w-full pointer-events-auto">
+              <div class="flex flex-col gap-2">
+                  <!-- Empty Top Left -->
               </div>
-              <div class="bg-white/20 backdrop-blur-md px-6 py-2 rounded-xl border border-white/30 flex flex-col items-end shadow-lg text-slate-900">
-                  <div class="text-[10px] tracking-widest uppercase mb-1 opacity-70">Credits</div>
-                  <div class="text-2xl font-black flex gap-1"><span class="text-yellow-400">Ⓒ</span>{{ coins() }}</div>
+
+              <div class="flex items-start gap-4">
+                  <div class="bg-black/40 backdrop-blur-md px-6 py-2 rounded-xl border border-white/20 flex flex-col items-end shadow-lg text-white">
+                      <div class="text-[10px] tracking-widest uppercase mb-1 opacity-70">Score</div>
+                      <div class="text-2xl font-black">{{ score() }}</div>
+                  </div>
+                  <div class="bg-black/40 backdrop-blur-md px-6 py-2 rounded-xl border border-white/20 flex flex-col items-end shadow-lg text-white">
+                      <div class="text-[10px] tracking-widest uppercase mb-1 opacity-70">Credits</div>
+                      <div class="text-2xl font-black flex gap-1"><span class="text-yellow-400">Ⓒ</span>{{ coins() }}</div>
+                  </div>
+                  <button (click)="togglePause()" class="w-12 h-12 bg-black/40 hover:bg-black/60 rounded-full backdrop-blur text-xl flex items-center justify-center border border-white/30 transition-all text-white shadow-lg">
+                      ⏸
+                  </button>
               </div>
-              <button (click)="togglePause()" class="w-12 h-12 bg-white/30 hover:bg-white/50 rounded-full backdrop-blur text-xl flex items-center justify-center border border-white/40 transition-all text-slate-900 shadow-lg">
-                  ⏸
-              </button>
           </div>
 
           <!-- CENTER FEEDBACK -->
@@ -67,132 +81,211 @@
               <!-- AI Status -->
               <div class="px-8 py-2 rounded-full border border-white/20 backdrop-blur-md shadow-2xl transition-all duration-300"
                    [ngClass]="{
-                       'bg-emerald-500/80 text-white border-emerald-400 scale-105': aiSuggestionType() === 'INFO',
-                       'bg-red-500/90 text-white border-red-400 animate-bounce': aiSuggestionType() === 'DANGER'
+                       'bg-emerald-600/90 text-white border-emerald-400 scale-105': aiSuggestionType() === 'INFO',
+                       'bg-red-600/90 text-white border-red-400 animate-bounce': aiSuggestionType() === 'DANGER'
                    }">
                   <span class="font-bold tracking-wider text-sm shadow-sm">{{ aiSuggestion() }}</span>
               </div>
           </div>
 
           <!-- BOTTOM DASHBOARD -->
-          <div class="flex justify-end items-end w-full pb-6 pr-6">
-              <div class="bg-slate-900/80 backdrop-blur-xl px-12 py-8 rounded-2xl border border-white/10 flex items-center gap-8 shadow-2xl relative overflow-hidden">
+          <div class="flex justify-between items-end w-full pb-2 md:pb-6 px-2 md:px-6">
+              
+              <!-- LEFT: CAR HP -->
+              <div class="bg-black/60 backdrop-blur-md px-4 py-3 rounded-tr-3xl rounded-bl-xl border-l-4 border-t border-b border-r border-white/20 border-l-red-500 flex flex-col w-64 shadow-2xl">
+                  <div class="flex justify-between text-[10px] uppercase mb-2 opacity-90 text-white font-bold tracking-widest">
+                      <span>CAR HP</span>
+                      <span [class.text-red-500]="health() < 30">{{ health() | number:'1.0-0' }}%</span>
+                  </div>
+                  <div class="w-full h-3 bg-gray-800 rounded-sm overflow-hidden border border-white/10">
+                      <div class="h-full transition-all duration-300 relative"
+                           [style.width.%]="health()"
+                           [ngClass]="{'bg-gradient-to-r from-red-600 to-orange-500': health() < 40, 'bg-gradient-to-r from-emerald-500 to-green-400': health() >= 40}">
+                           <div class="absolute inset-0 bg-white/20 animate-pulse"></div>
+                      </div>
+                  </div>
+              </div>
+
+              <!-- RIGHT: SPEEDOMETER (Small Version) -->
+              <div class="bg-slate-900/80 backdrop-blur-xl px-8 py-4 rounded-tl-3xl border border-white/20 flex items-center gap-6 shadow-2xl relative overflow-hidden transform scale-90 origin-bottom-right">
                   
                   <!-- RPM Line -->
-                  <div class="absolute bottom-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 via-cyan-400 to-white"
+                  <div class="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-cyan-400 to-white"
                        [style.width.%]="(speedKph() / 200) * 100"></div>
 
                   <!-- Gear -->
                   <div class="flex flex-col items-center">
-                      <div class="text-[9px] text-slate-400 uppercase tracking-widest mb-1">GEAR</div>
-                      <div class="w-16 h-16 bg-white/10 rounded-xl border border-white/10 flex items-center justify-center text-4xl font-black text-yellow-400 font-mono">
+                      <div class="text-[8px] text-slate-400 uppercase tracking-widest mb-1">GEAR</div>
+                      <div class="w-10 h-10 bg-white/10 rounded border border-white/10 flex items-center justify-center text-2xl font-black text-yellow-400 font-mono">
                           {{ currentGear() }}
                       </div>
                   </div>
 
                   <!-- Speedo -->
                   <div class="flex flex-col items-end">
-                      <div class="text-8xl font-black italic text-white leading-none tracking-tighter tabular-nums drop-shadow-lg">
+                      <div class="text-5xl font-black italic text-white leading-none tracking-tighter tabular-nums drop-shadow-lg">
                           {{ speedKph() }}
                       </div>
-                      <div class="text-sm text-cyan-400 font-bold tracking-[0.5em] mt-1">KM/H</div>
+                      <div class="text-[10px] text-cyan-400 font-bold tracking-[0.4em] mt-1">KM/H</div>
                   </div>
               </div>
           </div>
       </div>
   }
 
-  <!-- MENUS -->
+  <!-- NAME INPUT MODAL -->
+  @if(gameState() === 'NAME_INPUT') {
+      <div class="absolute inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-4 pointer-events-auto">
+          <div class="bg-slate-800 border border-white/20 p-8 rounded-3xl max-w-md w-full shadow-2xl text-center">
+              <h2 class="text-2xl font-bold text-white mb-6 uppercase tracking-widest">Driver License</h2>
+              <p class="text-sm text-gray-400 mb-8">Enter your alias for this race.</p>
+              
+              <input #nameInput type="text" placeholder="RACER NAME" maxlength="12"
+                     class="w-full bg-black/50 text-white text-center text-3xl font-black uppercase p-4 rounded-xl border-2 border-cyan-500 focus:outline-none focus:shadow-[0_0_20px_rgba(6,182,212,0.5)] mb-8 tracking-widest placeholder-white/20"
+                     (keyup.enter)="submitName(nameInput.value)">
+              
+              <button (click)="submitName(nameInput.value)" class="w-full py-4 bg-yellow-400 hover:bg-yellow-300 text-black font-black uppercase tracking-widest rounded-xl transition-all hover:scale-[1.02]">
+                  CONFIRM IDENTITY
+              </button>
+          </div>
+      </div>
+  }
+
+  <!-- LEADERBOARD SCREEN -->
+  @if(gameState() === 'LEADERBOARD') {
+      <div class="absolute inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 pointer-events-auto">
+          <div class="w-full max-w-4xl h-[80vh] bg-slate-900 border border-white/20 rounded-3xl flex flex-col overflow-hidden shadow-2xl">
+              <div class="p-8 border-b border-white/10 flex justify-between items-center bg-slate-800">
+                  <h2 class="text-3xl font-black text-cyan-400 italic tracking-tighter">MEGATRONIX RECORDS</h2>
+                  <div class="text-xs text-gray-400 uppercase tracking-widest">Top 20 Drivers</div>
+              </div>
+              
+              <div class="flex-1 overflow-y-auto p-0 custom-scroll">
+                  <table class="w-full text-left border-collapse">
+                      <thead class="bg-white/5 sticky top-0 backdrop-blur">
+                          <tr class="text-xs text-gray-400 uppercase tracking-widest">
+                              <th class="p-4 pl-8">Rank</th>
+                              <th class="p-4">Driver</th>
+                              <th class="p-4">Car</th>
+                              <th class="p-4 text-right pr-8">Score</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          @for(entry of leaderboard(); track entry.date; let i = $index) {
+                              <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                  <td class="p-4 pl-8 font-mono text-gray-500">#{{ i + 1 }}</td>
+                                  <td class="p-4 font-bold text-white">{{ entry.name }}</td>
+                                  <td class="p-4 text-sm text-gray-400">{{ entry.car }}</td>
+                                  <td class="p-4 text-right pr-8 font-mono text-yellow-400 font-bold">{{ entry.score | number }}</td>
+                              </tr>
+                          }
+                          @if(leaderboard().length === 0) {
+                              <tr>
+                                  <td colspan="4" class="p-12 text-center text-gray-600 italic">No Records Found. Be the first legend!</td>
+                              </tr>
+                          }
+                      </tbody>
+                  </table>
+              </div>
+
+              <div class="p-6 bg-slate-800 border-t border-white/10 text-center">
+                  <button (click)="returnToMenu()" class="px-12 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-full transition-all border border-white/20">
+                      CLOSE ARCHIVES
+                  </button>
+              </div>
+          </div>
+      </div>
+  }
+
+  <!-- MAIN MENU & SHOP -->
   @if(gameState() === 'IDLE' || gameState() === 'SHOP') {
-      <div class="absolute inset-0 z-50 bg-gradient-to-b from-sky-400 to-blue-600 flex flex-col items-center justify-center pointer-events-auto p-4">
+      <div class="absolute inset-0 z-50 pointer-events-auto">
           
           @if(gameState() === 'SHOP') {
-              <!-- GARAGE UI -->
-              <div class="bg-white/10 backdrop-blur-xl p-8 rounded-3xl w-full max-w-6xl h-[85vh] flex flex-col border border-white/20 shadow-2xl">
-                  <div class="flex justify-between items-center mb-8 border-b border-white/20 pb-4">
-                      <h2 class="text-4xl font-black italic text-white tracking-tighter drop-shadow-md">RACE <span class="text-yellow-300">GARAGE</span></h2>
-                      <div class="text-2xl font-bold bg-black/20 border border-white/10 px-6 py-2 rounded-full">Ⓒ {{ coins() }}</div>
+              <!-- GARAGE UI (Overlay on 3D Scene) -->
+              <div class="absolute inset-0 bg-gradient-to-r from-black/80 via-transparent to-black/80 pointer-events-none"></div>
+              
+              <div class="absolute inset-0 flex flex-col pointer-events-auto p-8">
+                  <div class="flex justify-between items-center mb-8">
+                      <h2 class="text-5xl font-black italic text-white tracking-tighter drop-shadow-md">RACE <span class="text-yellow-300">GARAGE</span></h2>
+                      <div class="text-xl font-bold bg-black/50 border border-white/20 px-6 py-2 rounded-full backdrop-blur">Ⓒ {{ coins() }}</div>
                   </div>
 
-                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 overflow-y-auto flex-1 p-2 custom-scroll">
-                      @for(car of availableCars(); track car.id) {
-                          <div class="group relative bg-black/30 rounded-2xl overflow-hidden border-2 transition-all cursor-pointer hover:scale-[1.02] hover:shadow-2xl hover:bg-black/40"
-                               [class.border-yellow-400]="selectedCarId() === car.id"
-                               [class.border-transparent]="selectedCarId() !== car.id"
-                               [class.opacity-60]="!car.unlocked"
-                               (click)="buyCar(car)">
-                              
-                              <div class="h-40 w-full flex items-center justify-center relative overflow-hidden bg-gradient-to-b from-white/10 to-transparent">
-                                   <div class="text-white font-black text-2xl uppercase italic transform -rotate-6 z-10 drop-shadow-lg">{{ car.name }}</div>
-                                   <div class="absolute top-2 right-2 w-4 h-4 rounded-full border border-white/50" [style.backgroundColor]="'#' + car.color.toString(16)"></div>
-                              </div>
-
-                              <div class="p-6">
-                                  <div class="flex justify-between text-xs text-white/70 mb-4 font-mono">
-                                      <span>SPD: <span class="text-white">{{car.speedMult}}x</span></span>
-                                      <span>HND: <span class="text-white">{{car.handlingMult}}x</span></span>
+                  <!-- CAR SELECTION CAROUSEL (Bottom) -->
+                  <div class="mt-auto mb-12">
+                      <div class="flex gap-4 overflow-x-auto pb-4 custom-scroll snap-x">
+                          @for(car of availableCars(); track car.id) {
+                              <div class="snap-center shrink-0 w-64 bg-slate-900/80 backdrop-blur border border-white/20 rounded-2xl p-4 cursor-pointer hover:border-yellow-400 transition-all transform hover:scale-105"
+                                   [class.border-yellow-400]="selectedCarId() === car.id"
+                                   (click)="buyCar(car)">
+                                  
+                                  <div class="flex justify-between items-start mb-2">
+                                      <div class="font-bold text-sm uppercase">{{ car.name }}</div>
+                                      @if(!car.unlocked) { <span class="text-[10px] bg-red-500 px-2 rounded font-bold">LOCKED</span> }
                                   </div>
                                   
-                                  @if(!car.unlocked) {
-                                      <button class="w-full py-3 bg-yellow-500 hover:bg-yellow-400 text-black font-black rounded-lg uppercase text-sm tracking-widest transition-colors shadow-lg">
-                                          UNLOCK {{ car.price }} Ⓒ
-                                      </button>
-                                  } @else {
-                                      @if(selectedCarId() === car.id) {
-                                          <div class="w-full py-3 bg-green-500 text-white font-bold rounded-lg text-center text-xs uppercase tracking-widest shadow-lg">
-                                              READY
-                                          </div>
+                                  <div class="text-xs text-gray-400 space-y-1 font-mono">
+                                      <div class="flex justify-between"><span>SPD</span> <span class="text-white">{{car.speedMult}}x</span></div>
+                                      <div class="flex justify-between"><span>HND</span> <span class="text-white">{{car.handlingMult}}x</span></div>
+                                  </div>
+
+                                  <div class="mt-4">
+                                      @if(!car.unlocked) {
+                                          <div class="text-center text-yellow-400 font-bold text-sm">{{ car.price }} Ⓒ</div>
                                       } @else {
-                                          <div class="w-full py-3 bg-white/20 text-white font-bold rounded-lg text-center text-xs uppercase hover:bg-white/30">
-                                              SELECT
-                                          </div>
+                                          <div class="text-center text-green-400 font-bold text-xs uppercase tracking-widest">OWNED</div>
                                       }
-                                  }
+                                  </div>
                               </div>
-                          </div>
-                      }
+                          }
+                      </div>
                   </div>
 
-                  <button (click)="gameState.set('IDLE')" class="mt-8 self-center px-16 py-4 bg-white/20 hover:bg-white/30 border border-white/30 rounded-full text-lg font-bold transition-all hover:scale-105 shadow-lg">
-                      BACK TO MENU
+                  <button (click)="returnToMenu()" class="absolute top-8 right-8 px-8 py-3 bg-white/10 hover:bg-white/20 rounded-full font-bold backdrop-blur border border-white/20">
+                      EXIT GARAGE
                   </button>
               </div>
           } @else {
               <!-- TITLE SCREEN -->
-              <h1 class="text-7xl md:text-9xl font-black italic mb-2 drop-shadow-xl text-center leading-none text-white transform -skew-x-6">
-                  MEGATRONIX<br>
-                  <span class="text-yellow-300">RACER</span>
-              </h1>
-              <p class="text-white/80 tracking-[0.5em] font-bold text-sm mb-12 bg-black/20 px-4 py-2 rounded">COMPUTER VISION DEMO v7.0</p>
-              
-              <div class="flex flex-col gap-6 w-80 z-10">
-                  <button (click)="startGame()" class="relative group px-8 py-6 bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-black text-2xl rounded-2xl shadow-[0_10px_20px_rgba(0,0,0,0.2)] hover:-translate-y-1 transition-all">
-                      INITIATE DEMO
-                  </button>
-                  <button (click)="gameState.set('SHOP')" class="px-8 py-5 bg-white/20 border-2 border-white/40 text-white font-bold text-xl rounded-2xl hover:bg-white/30 transition-all flex justify-between items-center group">
-                      CAR LAB <span class="text-yellow-300 group-hover:scale-125 transition-transform">★</span>
-                  </button>
-              </div>
+              <div class="absolute inset-0 bg-gradient-to-b from-purple-900/90 to-black/90 flex flex-col items-center justify-center">
+                  <h1 class="text-7xl md:text-9xl font-black italic mb-2 drop-shadow-xl text-center leading-none text-white transform -skew-x-6">
+                      GESTURE<br>
+                      <span class="text-cyan-400">RACER</span>
+                  </h1>
+                  <p class="text-white/80 tracking-[0.5em] font-bold text-sm mb-12 bg-black/20 px-4 py-2 rounded">MEGATRONIX VISION v9.8</p>
+                  
+                  <div class="flex flex-col gap-4 w-80 z-10">
+                      <button (click)="startNameEntry()" class="relative group px-8 py-6 bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-black text-2xl rounded-2xl shadow-[0_10px_20px_rgba(0,0,0,0.2)] hover:-translate-y-1 transition-all">
+                          INITIATE RACE
+                      </button>
+                      <button (click)="enterShop()" class="px-8 py-4 bg-white/10 border border-white/20 text-white font-bold text-lg rounded-2xl hover:bg-white/20 transition-all flex justify-between items-center group">
+                          CAR LAB <span class="text-yellow-300">★</span>
+                      </button>
+                      <button (click)="gameState.set('LEADERBOARD')" class="px-8 py-4 bg-white/10 border border-white/20 text-white font-bold text-lg rounded-2xl hover:bg-white/20 transition-all flex justify-between items-center group">
+                          LEADERBOARD <span class="text-cyan-300">≡</span>
+                      </button>
+                  </div>
 
-              <!-- CONTROLS GUIDE -->
-              <div class="mt-16 flex gap-12 text-center text-white/80 bg-black/10 p-6 rounded-3xl backdrop-blur-sm border border-white/10">
-                  <div class="flex flex-col items-center">
-                      <div class="text-4xl mb-2">✊</div>
-                      <div class="text-[10px] tracking-widest font-bold">FIST = GAS</div>
-                  </div>
-                  <div class="flex flex-col items-center">
-                      <div class="text-4xl mb-2">✋</div>
-                      <div class="text-[10px] tracking-widest font-bold">OPEN = BRAKE</div>
-                  </div>
-                  <div class="flex flex-col items-center">
-                      <div class="text-4xl mb-2">↔️</div>
-                      <div class="text-[10px] tracking-widest font-bold">TILT = TURN</div>
+                  <!-- CONTROLS GUIDE -->
+                  <div class="mt-16 flex gap-12 text-center text-white/80 bg-black/10 p-6 rounded-3xl backdrop-blur-sm border border-white/10">
+                      <div class="flex flex-col items-center">
+                          <div class="text-4xl mb-2">✋</div>
+                          <div class="text-[10px] tracking-widest font-bold">PALM = GAS</div>
+                      </div>
+                      <div class="flex flex-col items-center">
+                          <div class="text-4xl mb-2">✊</div>
+                          <div class="text-[10px] tracking-widest font-bold">FIST = BRAKE</div>
+                      </div>
+                      <div class="flex flex-col items-center">
+                          <div class="text-4xl mb-2">↔️</div>
+                          <div class="text-[10px] tracking-widest font-bold">TILT = TURN</div>
+                      </div>
                   </div>
               </div>
           } 
           
           <!-- CREDITS FOOTER -->
-          <div class="absolute bottom-6 text-center z-10 opacity-70">
+          <div class="absolute bottom-6 w-full text-center z-10 opacity-70 pointer-events-none">
               <div class="text-[10px] text-white tracking-[0.3em] uppercase mb-1">Developed for Megatronix 2026</div>
               <div class="text-xs font-bold text-yellow-300">Soumoditya Das & Team</div>
           </div>
@@ -200,31 +293,52 @@
   }
 
   @if(gameState() === 'LOADING') {
-      <div class="absolute inset-0 z-50 bg-sky-500 flex flex-col items-center justify-center">
-          <div class="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+      <div class="absolute inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center">
+          <div class="w-16 h-16 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
           <p class="mt-8 text-white font-bold tracking-widest animate-pulse">{{ loadingMessage() }}</p>
       </div>
   }
 
   @if(gameState() === 'GAME_OVER') {
-      <div class="absolute inset-0 z-50 bg-red-600/90 backdrop-blur-lg flex flex-col items-center justify-center pointer-events-auto text-white">
-          <h1 class="text-8xl font-black italic mb-4 tracking-tighter drop-shadow-xl">CRASHED</h1>
+      <div class="absolute inset-0 z-50 bg-[#740404] flex flex-col items-center justify-center pointer-events-auto text-white">
           
-          <div class="bg-black/20 p-8 rounded-3xl border border-white/20 backdrop-blur-xl mb-8 flex gap-12 text-center shadow-2xl">
+          <div class="absolute top-10 right-10 text-right space-y-4 opacity-90 hidden md:block">
+              <div class="text-blue-300 font-bold text-xl drop-shadow-md">HUM JO JANTE HAI WO SIKHATE HAI</div>
+              <div class="text-white/80 font-bold text-xl">JO NAHI JANTE?</div>
+              <div class="text-blue-300 font-bold text-xl drop-shadow-md">WOH SIKHKE SIKHATE HAI!!!</div>
+          </div>
+
+          <h1 class="text-8xl md:text-9xl font-black italic mb-8 tracking-tighter drop-shadow-2xl text-[#ff5f5f] transform -skew-x-12">WASTED</h1>
+          
+          <div class="bg-black/30 p-10 rounded-3xl border border-white/10 backdrop-blur-xl mb-10 flex gap-16 text-center shadow-2xl relative overflow-hidden">
+              <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-50"></div>
+              
               <div>
-                  <div class="text-[10px] text-white/60 uppercase tracking-widest mb-2">Distance Score</div>
-                  <div class="text-5xl font-bold">{{ score() }}</div>
+                  <div class="text-[10px] text-white/50 uppercase tracking-widest mb-2 font-bold">Distance Score</div>
+                  <div class="text-6xl font-black font-mono">{{ score() }}</div>
               </div>
-              <div class="w-px bg-white/20"></div>
+              <div class="w-px bg-gradient-to-b from-transparent via-white/20 to-transparent"></div>
               <div>
-                  <div class="text-[10px] text-white/60 uppercase tracking-widest mb-2">Credits Earned</div>
-                  <div class="text-5xl font-bold text-yellow-300">+{{ coins() - (availableCars()[0].price || 0) }}</div>
+                  <div class="text-[10px] text-white/50 uppercase tracking-widest mb-2 font-bold">Credits Earned</div>
+                  <div class="text-6xl font-black text-yellow-400 font-mono">+{{ coins() }}</div>
+              </div>
+          </div>
+          
+          <!-- Quick Leaderboard Peek -->
+          <div class="mb-8 text-center">
+              <div class="text-xs uppercase tracking-widest text-white/50 mb-2">Your Ranking</div>
+              <div class="bg-black/20 px-6 py-2 rounded-lg border border-white/10 inline-block">
+                  <span class="text-cyan-400 font-bold">{{ playerName() }}</span> 
+                  <span class="mx-2 text-white/30">|</span> 
+                  <span class="text-white">{{ score() }} pts</span>
               </div>
           </div>
 
           <div class="flex gap-6">
-              <button (click)="resetGame()" class="px-10 py-4 bg-white text-slate-900 font-black tracking-wider rounded-xl hover:scale-105 transition-all shadow-lg">RETRY</button>
-              <button (click)="gameState.set('IDLE')" class="px-10 py-4 border-2 border-white text-white font-bold tracking-wider rounded-xl hover:bg-white/10 hover:scale-105 transition-all">MENU</button>
+              <!-- Send back to Name Entry on Retry as requested -->
+              <button (click)="startNameEntry()" class="px-12 py-5 bg-white hover:bg-gray-200 text-slate-900 font-black tracking-widest rounded-xl hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.3)] text-lg">RETRY</button>
+              <button (click)="gameState.set('LEADERBOARD')" class="px-12 py-5 border-2 border-white/50 text-white font-bold tracking-widest rounded-xl hover:bg-white/10 hover:scale-105 transition-all text-lg">LEADERBOARD</button>
+              <button (click)="returnToMenu()" class="px-12 py-5 border-2 border-white/50 text-white font-bold tracking-widest rounded-xl hover:bg-white/10 hover:scale-105 transition-all text-lg">MENU</button>
           </div>
       </div>
   }

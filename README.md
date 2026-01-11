@@ -1,48 +1,65 @@
 
-# Gesture Racer 3D: Neon Edition 🏎️✨
+# Gesture Racer 3D: Megatronix Edition (v9.8) 🏎️✨
 
-**A Next-Gen Browser Racing Experience powered by Computer Vision.**
+**The Definitive Browser Racing Experience powered by Computer Vision.**
 
-![Status](https://img.shields.io/badge/Build-Production_Ready-success)
+![Status](https://img.shields.io/badge/Build-Stable_Production-success)
+![AI](https://img.shields.io/badge/AI-Megatronix_Vision-blue)
 ![Vercel](https://img.shields.io/badge/Deploy-Vercel-black)
 
-Controls a high-speed vehicle using hand gestures captured via webcam. No keyboard, no controller, just you.
+Controls a high-speed vehicle using hand gestures captured via webcam. No keyboard, no controller, just you and your webcam.
 
 ---
 
-## 🌟 Key Features (v2.0 Gold Master)
+## 🌟 Key Features
 
+*   **Megatronix Vision AI**: Uses Linear Algebraic Vector Math on 21 MediaPipe Landmarks for ultra-smooth, low-latency steering control.
+*   **Performance Engine**: Decoupled rendering loop (60 FPS) and AI inference loop (30 FPS) ensures zero-lag gameplay even on mid-range devices.
 *   **Synthwave Aesthetics**: Dynamic neon lighting, glowing road edges, and procedural infinite city generation.
-*   **Physics 2.0**: Advanced drifting mechanics, suspension simulation, and collision physics.
-*   **Nitro System**: Drift to charge your N2O meter. Auto-activates at max charge for a speed boost.
-*   **Economy**: Collect repair kits and gold coins on the track.
-*   **PWA Ready**: Installs as an app, works offline (after initial cache).
+*   **Economy & Garage**: Earn credits, unlock cars, and view them in a 360° showroom.
+*   **Local Leaderboards**: Track your high scores and compete locally.
 
 ---
 
 ## 🎮 How to Play
 
-1.  **Accelerate**: Open Palm ✋
-2.  **Brake**: Closed Fist ✊
-3.  **Steer**: Tilt hands relative to each other (like holding a virtual wheel).
-4.  **Drift**: Turn hard + Tap Brake.
-5.  **Nitro**: Fill the blue bar by drifting. Activates automatically for a speed burst!
+1.  **Initiate Race**: Enter your alias (Required every race for fair competition).
+2.  **Controls**:
+    *   **Accelerate**: Open Palm ✋
+    *   **Brake**: Closed Fist ✊
+    *   **Steer (1 Hand)**: Move hand left/right (Joystick mode).
+    *   **Steer (2 Hands)**: Hold hands like a virtual steering wheel and rotate.
+3.  **Visual Feedback**:
+    *   **Green Skeleton**: Gas Active.
+    *   **Red Skeleton**: Braking Active.
+    *   **Yellow Skeleton**: Neutral/Coast.
+    *   **Dots**: The 21 tracking points on your hand joints.
+
+---
+
+## 🛠️ System Architecture
+
+*   **Framework**: Angular 18+ (Zoneless Architecture)
+*   **3D Engine**: Three.js (WebGL 2.0)
+*   **Computer Vision**: Google MediaPipe Hand Landmarker (GPU Accelerated)
+*   **Math**: Vector-based steering calculation with Exponential Moving Average (EMA) smoothing.
+
+### Performance Optimization
+To prevent freezing/lag:
+1.  **Loop Throttling**: CV prediction runs every ~32ms, decoupling it from the 16ms render frame.
+2.  **Asset Pooling**: Obstacles and Coins are recycled in object pools, preventing Garbage Collection spikes.
+3.  **Strict Lifecycle Management**: All loops are explicitly cancelled before state transitions.
 
 ---
 
 ## 🚀 Deployment Guide (Vercel)
 
-This project is optimized for **Angular CLI** deployment on Vercel.
-
 1.  **Install Angular CLI**: `npm install -g @angular/cli`
-2.  **Create Project**: `ng new gesture-racer` (Select CSS)
-3.  **Replace Files**: Copy the source files from this repo into the `src/` folder.
-4.  **Assets**: Ensure `three.min.js` and `tailwind.js` are in `src/assets` or loaded via CDN.
-5.  **Deploy**:
-    *   Push to GitHub.
-    *   Import to Vercel.
+2.  **Create Project**: `ng new gesture-racer`
+3.  **Copy Source**: Overwrite `src/` with this repository.
+4.  **Deploy**:
     *   Build Command: `ng build`
-    *   **Output Directory:** `dist/gesture-racer-3d/browser`
+    *   Output Directory: `dist/gesture-racer-3d/browser`
 
 ---
 
