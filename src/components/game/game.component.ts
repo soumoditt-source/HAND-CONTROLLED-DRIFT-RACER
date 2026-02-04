@@ -2,7 +2,7 @@
 /*
  * PROJECT: Gesture Racer 3D (Megatronix Edition)
  * AUTHOR: Soumoditya Das & Team Megatronix 2026 (MSIT)
- * VERSION: 9.9.1 (Stability Fixes)
+ * VERSION: 9.9.3 (Logic Inversion & Memory Optimization)
  * 
  * ARCHITECTURE:
  * - Render Loop: 60 FPS (Visuals)
@@ -18,7 +18,7 @@ declare const THREE: any;
 
 // --- CONFIGURATION ---
 const BGM_URL = 'https://opengameart.org/sites/default/files/Rolemusic_-_pl4y1ng.mp3'; 
-const LERP_FACTOR = 0.1; 
+const LERP_FACTOR = 0.15; // Snappy physics response
 const CV_THROTTLE_MS = 32; 
 
 // --- GAME CONSTANTS ---
@@ -91,6 +91,10 @@ export class GameComponent implements AfterViewInit, OnDestroy {
   aiSuggestionType = signal<'INFO' | 'WARN' | 'DANGER'>('INFO');
   difficultyLevel = signal(1);
 
+  // Self Destruct System
+  isSelfDestructing = signal(false);
+  destructTimer = signal(0);
+
   // --- INTERNAL PHYSICS ---
   private speed = 0; 
   private carX = 0; 
@@ -113,12 +117,14 @@ export class GameComponent implements AfterViewInit, OnDestroy {
   private garageSpotlight: any; 
   private floatingSkyText: any;
   
-  // Shared Assets
+  // Shared Assets (Optimized to prevent memory leaks)
   private matRoad!: any;
   private matGrass!: any;
   private matRail!: any;
   private matBuilding!: any;
   private matTrafficBody!: any;
+  private matWhite!: any;
+  private matYellowStripe!: any;
   
   private geoCoin!: any;
   private geoRock!: any;
@@ -128,6 +134,7 @@ export class GameComponent implements AfterViewInit, OnDestroy {
   private geoBuilding!: any;
   private geoTreeTrunk!: any;
   private geoTreeCrown!: any;
+  private geoStripe!: any;
   
   private obstaclePool: any[] = [];
   private coinPool: any[] = [];
@@ -143,6 +150,7 @@ export class GameComponent implements AfterViewInit, OnDestroy {
   private engineOsc2: OscillatorNode | null = null; 
   private engineGain: GainNode | null = null;
   private bgmAudio: HTMLAudioElement | null = null;
+  private sirenOsc: OscillatorNode | null = null;
   
   // --- LOOP & AI CONTROL ---
   private animId: number | null = null;
@@ -163,14 +171,14 @@ export class GameComponent implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     this.keydownListener = (e: KeyboardEvent) => {
-        if (this.gameState() === 'RUNNING' && (e.key.toLowerCase() === 'p' || e.key === 'Escape')) {
-            this.togglePause();
+        if (this.gameState() === 'RUNNING') {
+            if (e.key.toLowerCase() === 'p' || e.key === 'Escape') this.togglePause();
+            if (e.key === 'Delete') this.triggerSelfDestruct();
         }
     };
     if (typeof window !== 'undefined') {
         window.addEventListener('keydown', this.keydownListener);
         
-        // Fix: Add resize listener to prevent visual glitches on screen change
         this.resizeListener = () => this.onWindowResize();
         window.addEventListener('resize', this.resizeListener);
     }
@@ -224,8 +232,16 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       if (this.webcamRunning) return;
       try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-          this.video.nativeElement.srcObject = stream;
-          await new Promise(r => this.video.nativeElement.onloadeddata = r);
+          
+          await new Promise<void>((resolve) => {
+              // Set listener before source to catch early events
+              this.video.nativeElement.onloadedmetadata = () => {
+                  this.video.nativeElement.play().catch(e => console.warn("Auto-play blocked:", e));
+                  resolve();
+              };
+              this.video.nativeElement.srcObject = stream;
+          });
+          
           this.webcamRunning = true;
       } catch(e) {
           console.error("Camera Access Failed", e);
@@ -289,7 +305,6 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       this.playerName.set(''); 
       this.gameState.set('NAME_INPUT');
       
-      // Ensure scene is visible behind input
       this.initThreeJS();
       this.envGroup.visible = true;
       this.floatingSkyText.visible = true;
@@ -356,6 +371,7 @@ export class GameComponent implements AfterViewInit, OnDestroy {
     this.difficultyLevel.set(1);
     this.aiSuggestionType.set('INFO');
     this.aiSuggestion.set('SYSTEM ONLINE');
+    this.isSelfDestructing.set(false);
     
     // Fix: Flush clock to prevent huge delta time spike
     this.clock.getDelta(); 
@@ -427,6 +443,27 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       }
   }
 
+  triggerSelfDestruct() {
+      if (this.isSelfDestructing() || this.gameState() !== 'RUNNING') return;
+      this.isSelfDestructing.set(true);
+      this.destructTimer.set(3.0);
+      this.aiSuggestion.set('SELF DESTRUCT SEQUENCE');
+      this.aiSuggestionType.set('DANGER');
+      
+      // Siren effect
+      if (this.audioCtx) {
+          this.sirenOsc = this.audioCtx.createOscillator();
+          this.sirenOsc.type = 'square';
+          const gain = this.audioCtx.createGain();
+          gain.gain.value = 0.2;
+          this.sirenOsc.connect(gain);
+          gain.connect(this.audioCtx.destination);
+          this.sirenOsc.start();
+          this.sirenOsc.frequency.setValueAtTime(800, this.audioCtx.currentTime);
+          this.sirenOsc.frequency.linearRampToValueAtTime(400, this.audioCtx.currentTime + 0.5);
+      }
+  }
+
   buyCar(car: CarModel) {
       if (car.unlocked) {
           this.selectedCarId.set(car.id);
@@ -444,7 +481,6 @@ export class GameComponent implements AfterViewInit, OnDestroy {
   // --- THREE.JS ENGINE ---
   initThreeJS(): void {
     if (this.scene) {
-        // Ensure renderer is attached if component view was refreshed
         if (!this.canvasContainer.nativeElement.contains(this.renderer.domElement)) {
             this.canvasContainer.nativeElement.appendChild(this.renderer.domElement);
         }
@@ -467,7 +503,6 @@ export class GameComponent implements AfterViewInit, OnDestroy {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     
-    // Clear any existing children just in case
     this.canvasContainer.nativeElement.innerHTML = '';
     this.canvasContainer.nativeElement.appendChild(this.renderer.domElement);
 
@@ -570,6 +605,8 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       this.matRoad = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 });
       this.matBuilding = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, flatShading: true });
       this.matTrafficBody = new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 0.3, roughness: 0.5 });
+      this.matWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      this.matYellowStripe = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
       
       const cvs = document.createElement('canvas');
       cvs.width = 64; cvs.height = 64;
@@ -593,6 +630,7 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       this.geoBuilding = new THREE.BoxGeometry(4, 1, 4); 
       this.geoTreeTrunk = new THREE.CylinderGeometry(0.2, 0.4, 3, 6);
       this.geoTreeCrown = new THREE.DodecahedronGeometry(1.5);
+      this.geoStripe = new THREE.BoxGeometry(3.1, 0.5, 1.1);
   }
 
   initPools() {
@@ -665,6 +703,20 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       }
 
       // GAME MODE
+      
+      // Self Destruct Logic
+      if (this.isSelfDestructing()) {
+          this.destructTimer.update(t => t - dt);
+          if (this.sirenOsc && this.audioCtx) {
+             const freq = 400 + (Math.sin(Date.now() * 0.02) * 200);
+             this.sirenOsc.frequency.setValueAtTime(freq, this.audioCtx.currentTime);
+          }
+          if (this.destructTimer() <= 0) {
+              this.crash(true);
+              this.isSelfDestructing.set(false);
+          }
+      }
+
       const currentCar = this.availableCars().find(c => c.id === this.selectedCarId()) || CAR_CATALOG[0];
 
       this.updateAtmosphere(dt);
@@ -768,6 +820,9 @@ export class GameComponent implements AfterViewInit, OnDestroy {
           const middleKnuckle = hand[9]; 
           
           const dx = middleKnuckle.x - wrist.x;
+          // Inverted: Real-world Right = Image Left (dx negative).
+          // We want Right Tilt -> Right Steer. So negative dx -> positive steer.
+          // Multiplier changed from 8.0 to -8.0
           if (Math.abs(dx) < 0.03) steerInput = 0; 
           else steerInput = dx * -8.0; 
           
@@ -781,12 +836,16 @@ export class GameComponent implements AfterViewInit, OnDestroy {
           this.isTwoHandMode.set(true);
           const h1 = landmarks[0][9];
           const h2 = landmarks[1][9];
+          // Image Left (smaller x) is Real Right Hand
           const left = h1.x < h2.x ? h1 : h2;
           const right = h1.x < h2.x ? h2 : h1;
           
           const dy = right.y - left.y;
           const dx = right.x - left.x;
           const angle = Math.atan2(dy, dx); 
+          // Inverted: Steering Right (Right hand down) -> left.y increases -> dy negative.
+          // We want Right Steer -> Positive Steer. So negative angle -> positive steer.
+          // Multiplier changed from 3.0 to -3.0
           steerInput = angle * -3.0; 
           this.virtualSteerAngle.set(angle * (180/Math.PI)); 
           driveState = 'GAS'; 
@@ -796,7 +855,8 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       const sign = Math.sign(steerInput);
       steerInput = sign * Math.pow(Math.abs(steerInput), 1.5); 
       
-      this.targetSteer = this.targetSteer * 0.7 + steerInput * 0.3;
+      // Fine-tune smoothing: 0.5/0.5 for responsiveness
+      this.targetSteer = this.targetSteer * 0.5 + steerInput * 0.5;
       
       this.currentDriveState.set(driveState);
   }
@@ -932,14 +992,16 @@ export class GameComponent implements AfterViewInit, OnDestroy {
           type = 'TRAFFIC';
           const body = new THREE.Mesh(this.geoTrafficBody, this.matTrafficBody);
           body.position.y = 0.6; body.castShadow = true; poolObj.mesh.add(body);
-          const light = new THREE.Mesh(this.geoTrafficLight, new THREE.MeshBasicMaterial({color: 0xffffff}));
+          // Optimization: Use Shared Materials & Geometries
+          const light = new THREE.Mesh(this.geoTrafficLight, this.matWhite);
           light.position.set(-0.5, 0.6, 2.01); poolObj.mesh.add(light);
           const light2 = light.clone(); light2.position.set(0.5, 0.6, 2.01); poolObj.mesh.add(light2);
       } else if (typeRoll < 0.7) {
           type = 'WALL'; width = 2.5;
           const wall = new THREE.Mesh(this.geoWall, new THREE.MeshStandardMaterial({ color: 0x64748b }));
           wall.position.y = 1; wall.castShadow = true; poolObj.mesh.add(wall);
-          const stripe = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.5, 1.1), new THREE.MeshBasicMaterial({ color: 0xfacc15 }));
+          // Optimization: Use Shared Materials & Geometries
+          const stripe = new THREE.Mesh(this.geoStripe, this.matYellowStripe);
           stripe.position.y = 1; poolObj.mesh.add(stripe);
       } else {
           type = 'ROCK';
@@ -1065,6 +1127,10 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       if(this.engineOsc1) {
           try { this.engineOsc1.stop(); this.engineOsc2?.stop(); } catch(e){}
           this.engineOsc1 = null; this.engineOsc2 = null;
+      }
+      if (this.sirenOsc) {
+          try { this.sirenOsc.stop(); } catch(e){}
+          this.sirenOsc = null;
       }
       this.bgmAudio?.pause();
   }

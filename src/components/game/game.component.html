@@ -17,14 +17,23 @@
        [class.opacity-100]="health() < 30 || aiSuggestionType() === 'DANGER'"
        [class.opacity-0]="health() >= 30 && aiSuggestionType() !== 'DANGER'"></div>
 
+  <!-- SELF DESTRUCT COUNTDOWN OVERLAY -->
+  @if(isSelfDestructing()) {
+      <div class="absolute inset-0 z-50 flex items-center justify-center bg-red-900/40 backdrop-blur-sm animate-pulse pointer-events-none">
+          <div class="text-[15rem] font-black text-red-500 drop-shadow-[0_0_50px_rgba(255,0,0,0.8)] tabular-nums leading-none">
+              {{ destructTimer() | number:'1.2-2' }}
+          </div>
+      </div>
+  }
+
   <!-- COMPUTER VISION HUD (Glassmorphism) -->
   <div class="absolute top-4 left-4 z-20 transition-all duration-300"
        [class.opacity-100]="gameState() === 'RUNNING'"
        [class.opacity-0]="gameState() !== 'RUNNING'">
        
        <div class="relative w-48 md:w-64 h-36 md:h-48 rounded-2xl overflow-hidden border border-white/40 bg-black/40 shadow-xl backdrop-blur-md">
-           <!-- Mirror video -->
-           <video #webcamVideo autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover transform scale-x-[-1] opacity-70"></video>
+           <!-- Mirror video (Autoplay removed to be handled by JS) -->
+           <video #webcamVideo playsinline muted class="absolute inset-0 w-full h-full object-cover transform scale-x-[-1] opacity-70"></video>
            <canvas #landmarkCanvas class="absolute inset-0 w-full h-full transform scale-x-[-1]"></canvas>
            
            <!-- Control State Overlay -->
@@ -62,6 +71,7 @@
               </div>
 
               <div class="flex items-start gap-4">
+                  <!-- Score & Credits -->
                   <div class="bg-black/40 backdrop-blur-md px-6 py-2 rounded-xl border border-white/20 flex flex-col items-end shadow-lg text-white">
                       <div class="text-[10px] tracking-widest uppercase mb-1 opacity-70">Score</div>
                       <div class="text-2xl font-black">{{ score() }}</div>
@@ -70,9 +80,18 @@
                       <div class="text-[10px] tracking-widest uppercase mb-1 opacity-70">Credits</div>
                       <div class="text-2xl font-black flex gap-1"><span class="text-yellow-400">Ⓒ</span>{{ coins() }}</div>
                   </div>
-                  <button (click)="togglePause()" class="w-12 h-12 bg-black/40 hover:bg-black/60 rounded-full backdrop-blur text-xl flex items-center justify-center border border-white/30 transition-all text-white shadow-lg">
-                      ⏸
-                  </button>
+                  
+                  <!-- Control Group -->
+                  <div class="flex gap-2">
+                      <button (click)="triggerSelfDestruct()" class="w-12 h-12 bg-red-900/60 hover:bg-red-600 rounded-lg backdrop-blur text-xl flex items-center justify-center border border-red-500/50 transition-all text-white shadow-lg group relative overflow-hidden" title="SELF DESTRUCT">
+                          <span class="relative z-10">☢️</span>
+                          <div class="absolute inset-0 bg-red-600/20 translate-y-full group-hover:translate-y-0 transition-transform"></div>
+                      </button>
+                      
+                      <button (click)="togglePause()" class="w-12 h-12 bg-black/40 hover:bg-black/60 rounded-full backdrop-blur text-xl flex items-center justify-center border border-white/30 transition-all text-white shadow-lg">
+                          ⏸
+                      </button>
+                  </div>
               </div>
           </div>
 
@@ -278,7 +297,7 @@
                       </div>
                       <div class="flex flex-col items-center">
                           <div class="text-4xl mb-2">↔️</div>
-                          <div class="text-[10px] tracking-widest font-bold">TILT = TURN</div>
+                          <div class="text-[10px] tracking-widest font-bold">MOVE/TILT = TURN</div>
                       </div>
                   </div>
               </div>
